@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mi Super AI</title>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Fuente Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f3f4f6;
+            background-image: radial-gradient(#e5e7eb 1px, transparent 1px);
+            background-size: 20px 20px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-enter { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        #initial-loader {
+            position: fixed; inset: 0; display: flex; justify-content: center; align-items: center;
+            background: white; z-index: 9999; transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #4f46e5; border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="initial-loader">
+        <div class="flex flex-col items-center gap-4">
+            <div class="spinner"></div>
+            <p class="text-gray-500 text-sm font-medium">Cargando tu Súper...</p>
+        </div>
+    </div>
+
+    <div id="root" class="h-screen w-full flex justify-center items-start sm:items-center sm:p-4"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- COMPONENTES UI REUTILIZABLES ---
+
+        // Iconos simplificados y corregidos con Fragments <>...</>
+        const Icon = ({ name, size = 20, className = "" }) => {
+            const icons = {
+                Plus: <path d="M12 5v14M5 12h14" />,
+                ShoppingBag: <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z M3 6h18 M16 10a4 4 0 0 1-8 0" />,
+                Home: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10" />,
+                History: <path d="M12 8v4l3 3 M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5" />,
+                Check: <polyline points="20 6 9 17 4 12" />,
+                Trash: <path d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
+                Mic: <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v4 M8 23h8" />,
+                // Elementos múltiples envueltos en <>...</>
+                Settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
+                Sparkles: <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />,
+                Chef: <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z M6 17h12" />,
+                X: <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>,
+                ArrowRight: <><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></>,
+                Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
+                Tag: <><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></>
+            };
+            return (
+                <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    {icons[name] || <circle cx="12" cy="12" r="10"/>}
+                </svg>
+            );
+        };
+
+        const SuperApp = () => {
+            // --- ESTADOS ---
+            const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+            const [showSettings, setShowSettings] = useState(false);
+            const [activeTab, setActiveTab] = useState('shopping'); 
+
+            const [items, setItems] = useState(() => {
+                const saved = localStorage.getItem('super-app-data-final');
+                try {
+                    const parsed = JSON.parse(saved);
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch {
+                    return [
+                        { id: 1, name: 'Leche Deslactosada', places: ['Supermercado'], status: 'needed', lastBought: null },
+                        { id: 2, name: 'Pan de Caja', places: ['Costco'], status: 'stocked', lastBought: '2 oct' },
+                    ];
+                }
+            });
+
+            // Inputs
+            const [newItemName, setNewItemName] = useState('');
+            const [newPlaceTag, setNewPlaceTag] = useState('');
+            const [selectedPlaces, setSelectedPlaces] = useState(['General']);
+            const [currentStoreFilter, setCurrentStoreFilter] = useState('Todos'); 
+
+            // IA
+            const [isAiLoading, setIsAiLoading] = useState(false);
+            const [showAiModal, setShowAiModal] = useState(false); 
+            const [aiPromptInput, setAiPromptInput] = useState('');
+            const [aiResult, setAiResult] = useState(null);
+
+            // Confirm
+            const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', action: null });
+            const fileInputRef = useRef(null);
+
+            // Efectos iniciales
+            useEffect(() => {
+                const loader = document.getElementById('initial-loader');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(() => loader.remove(), 500);
+                }
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem('super-app-data-final', JSON.stringify(items));
+            }, [items]);
+
+            // --- LÓGICA ---
+            const saveApiKey = () => {
+                localStorage.setItem('gemini_api_key', userApiKey);
+                setShowSettings(false);
+                setConfirmModal({
+                    show: true,
+                    title: '¡Clave Guardada!',
+                    message: 'Ahora puedes usar los poderes de IA.',
+                    action: () => setConfirmModal({show:false})
+                });
+            };
+
+            const callGemini = async (prompt) => {
+                if (!userApiKey) {
+                    setAiResult("⚠️ Primero configura tu API Key en Ajustes (⚙️).");
+                    return null;
+                }
+                try {
+                    const response = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${userApiKey}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                        }
+                    );
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+                } catch (e) { console.error(e); return null; }
+            };
+
+            // IA Handlers
+            const handleAiDictation = async () => {
+                if (!aiPromptInput.trim()) return;
+                setIsAiLoading(true); setAiResult(null);
+                const prompt = `Analiza lista: "${aiPromptInput}". Regresa JSON: [{"name":"x","places":["y"],"status":"needed|stocked"}]. Si dice "tengo/hay"->stocked. Si "falta"->needed. Default lugar: General. SOLO JSON.`;
+                const text = await callGemini(prompt);
+                if (text) {
+                    try {
+                        const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+                        if (Array.isArray(json)) {
+                            const newItems = json.map(p => ({
+                                id: Date.now() + Math.random(), name: p.name, places: p.places || ['General'], 
+                                status: p.status || 'needed', lastBought: p.status === 'stocked' ? 'Hoy' : null
+                            }));
+                            setItems(prev => [...prev, ...newItems]);
+                            setAiResult(`✅ Agregados ${newItems.length} productos.`);
+                            setTimeout(() => { setShowAiModal(null); setAiResult(null); setAiPromptInput(''); }, 2000);
+                        }
+                    } catch { setAiResult("No entendí bien. Intenta ser más claro."); }
+                } else { setAiResult("Error de conexión."); }
+                setIsAiLoading(false);
+            };
+
+            const handleAiChef = async () => {
+                const stock = items.filter(i => i.status === 'stocked').map(i => i.name).join(', ');
+                if (!stock) { setAiResult("Alacena vacía. ¡Agrega cosas!"); return; }
+                setIsAiLoading(true);
+                const text = await callGemini(`Tengo: ${stock}. Receta creativa y corta (max 3 pasos). Título divertido. Usa emojis.`);
+                setAiResult(text); setIsAiLoading(false);
+            };
+
+            const handleAiPlanner = async () => {
+                if (!aiPromptInput.trim()) return;
+                setIsAiLoading(true);
+                const text = await callGemini(`Lista ingredientes para: "${aiPromptInput}". JSON: [{"name":"x","place":"y"}]. Max 10.`);
+                if (text) {
+                    try {
+                        const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+                        setItems(prev => [...prev, ...json.map(i => ({ id: Date.now()+Math.random(), name: i.name, places: [i.place||'General'], status: 'needed', lastBought:null }))]);
+                        setAiResult(`✨ ¡Lista creada!`);
+                        setTimeout(() => { setShowAiModal(null); setAiResult(null); setAiPromptInput(''); }, 2000);
+                    } catch { setAiResult("Error al planear."); }
+                }
+                setIsAiLoading(false);
+            };
+
+            // Core Handlers
+            const addItem = (e, status='needed') => {
+                if(e) e.preventDefault();
+                if(!newItemName.trim()) return;
+                setItems([...items, { id: Date.now(), name: newItemName, places: selectedPlaces, status, lastBought: status==='stocked'?'Hoy':null }]);
+                setNewItemName(''); setSelectedPlaces(['General']);
+            };
+
+            const handleCheckout = () => {
+                const cart = items.filter(i => i.status === 'cart');
+                setConfirmModal({
+                    show: true, title: '¿Terminar compra?', message: `${cart.length} productos irán a casa.`,
+                    action: () => {
+                        setItems(items.map(i => i.status === 'cart' ? {...i, status:'stocked', lastBought:'Hoy'} : i));
+                        setActiveTab('inventory');
+                        setConfirmModal({show:false});
+                    }
+                });
+            };
+
+            const handleFileUpload = (e) => {
+                const f = e.target.files[0];
+                if(!f) return;
+                const r = new FileReader();
+                r.onload = (evt) => {
+                    const l = evt.target.result.split('\n');
+                    const n = l.map(line => {
+                        const c = line.split(',');
+                        if(!c[0] || c[0].toLowerCase().includes('nombre')) return null;
+                        return { id: Math.random(), name: c[0].trim(), places: c[1]?[c[1].trim()]:['General'], status: 'stocked', lastBought: null };
+                    }).filter(Boolean);
+                    if(n.length) setItems(p => [...p, ...n]);
+                };
+                r.readAsText(f);
+            };
+
+            // Filtrado
+            const filtered = items.filter(i => {
+                if (activeTab === 'shopping') return (i.status === 'needed' || i.status === 'cart') && (currentStoreFilter === 'Todos' || i.places.includes(currentStoreFilter) || i.places.includes('General'));
+                if (activeTab === 'inventory') return i.status === 'stocked';
+                return true;
+            });
+
+            const allPlaces = Array.from(new Set(items.flatMap(i => i.places || ['General']))).filter(p => p !== 'General');
+            allPlaces.unshift('General'); 
+
+            return (
+                <div className="w-full h-full sm:h-[85vh] sm:max-w-[400px] bg-white sm:rounded-[30px] shadow-2xl overflow-hidden flex flex-col relative border border-gray-100 ring-4 ring-gray-900/5">
+
+                    {/* HEADER */}
+                    <div className="bg-indigo-600 text-white p-5 pt-8 sm:pt-6 rounded-b-[30px] shadow-lg z-10 shrink-0 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-10 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+
+                        <div className="flex justify-between items-center mb-4 relative z-10">
+                            <h1 className="text-2xl font-bold flex items-center gap-2 tracking-tight">
+                                <Icon name="ShoppingBag" className="stroke-2" /> Mi Súper
+                            </h1>
+                            <div className="flex gap-2">
+                                <button onClick={() => setShowAiModal('dictation')} className="p-2 bg-white/20 rounded-full hover:bg-white/30 backdrop-blur-md transition active:scale-95"><Icon name="Mic" /></button>
+                                <button onClick={() => setShowSettings(true)} className="p-2 bg-white/20 rounded-full hover:bg-white/30 backdrop-blur-md transition active:scale-95"><Icon name="Settings" /></button>
+                            </div>
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="bg-white/10 backdrop-blur-md p-1.5 rounded-2xl border border-white/20 shadow-inner">
+                            <div className="flex items-center bg-indigo-900/30 rounded-xl px-3 py-1 mb-1.5">
+                                <input type="text" value={newItemName} onChange={e=>setNewItemName(e.target.value)}
+                                    placeholder={activeTab==='inventory'?"Agregar a casa...":"¿Qué falta?"}
+                                    className="bg-transparent border-none text-white placeholder-indigo-200 w-full outline-none py-2 text-sm font-medium" />
+                                <button onClick={e=>addItem(e, activeTab==='inventory'?'stocked':'needed')} disabled={!newItemName}
+                                    className="bg-white text-indigo-600 p-1.5 rounded-lg shadow disabled:opacity-50 active:scale-90 transition">
+                                    <Icon name="Plus" size={18} />
+                                </button>
+                            </div>
+
+                            {/* Tags */}
+                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-1">
+                                <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg">
+                                    <Icon name="Tag" size={12} className="text-indigo-200"/>
+                                    <input value={newPlaceTag} onChange={e=>setNewPlaceTag(e.target.value)} 
+                                        onKeyDown={e=>{if(e.key==='Enter' && newPlaceTag){setSelectedPlaces([...selectedPlaces, newPlaceTag]); setNewPlaceTag('')}}}
+                                        placeholder="Etiqueta..." className="bg-transparent w-16 text-[11px] text-white outline-none placeholder-indigo-300"/>
+                                </div>
+                                {selectedPlaces.map(p => (
+                                    <span key={p} onClick={()=>selectedPlaces.length>1 && setSelectedPlaces(selectedPlaces.filter(x=>x!==p))}
+                                        className="text-[10px] bg-white text-indigo-700 px-2 py-1 rounded-lg font-bold whitespace-nowrap shadow-sm cursor-pointer hover:bg-red-50 hover:text-red-500 transition">
+                                        {p} {selectedPlaces.length>1 && '×'}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* TABS */}
+                    <div className="flex justify-around py-2 border-b border-gray-100 bg-white shrink-0">
+                        {[
+                            {id: 'shopping', icon: 'ShoppingBag', label: 'Lista'},
+                            {id: 'inventory', icon: 'Home', label: 'Casa'},
+                            {id: 'history', icon: 'History', label: 'Historial'}
+                        ].map(tab => (
+                            <button key={tab.id} onClick={()=>setActiveTab(tab.id)} 
+                                className={`flex flex-col items-center gap-1 p-2 w-16 rounded-xl transition-all duration-300 ${activeTab===tab.id ? 'text-indigo-600 bg-indigo-50 scale-105' : 'text-gray-400 hover:text-gray-600'}`}>
+                                <Icon name={tab.icon} className={activeTab===tab.id?'stroke-[2.5]':'stroke-2'} />
+                                <span className="text-[10px] font-bold">{tab.label}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* CONTENT */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/50">
+
+                        {/* SHOPPING VIEW */}
+                        {activeTab === 'shopping' && (
+                            <>
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                                    <button onClick={()=>setCurrentStoreFilter('Todos')} className={`px-4 py-1.5 rounded-full text-xs font-bold border transition ${currentStoreFilter==='Todos'?'bg-gray-800 text-white border-gray-800':'bg-white text-gray-500 border-gray-200'}`}>Todos</button>
+                                    {allPlaces.filter(p=>p!=='General').map(p=>(
+                                        <button key={p} onClick={()=>setCurrentStoreFilter(p)} className={`px-4 py-1.5 rounded-full text-xs font-bold border transition whitespace-nowrap ${currentStoreFilter===p?'bg-gray-800 text-white border-gray-800':'bg-white text-gray-500 border-gray-200'}`}>{p}</button>
+                                    ))}
+                                </div>
+
+                                {filtered.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-48 text-gray-400 animate-enter">
+                                        <div className="bg-white p-4 rounded-full mb-3 shadow-sm"><Icon name="Check" size={32} className="text-green-500" /></div>
+                                        <p className="text-sm font-medium">Todo listo en {currentStoreFilter}</p>
+                                        <button onClick={()=>setShowAiModal('planner')} className="mt-4 text-xs bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg font-bold hover:bg-indigo-200 transition">✨ Sugerir</button>
+                                    </div>
+                                ) : (
+                                    filtered.map(item => (
+                                        <div key={item.id} onClick={()=>{
+                                            const newS = item.status === 'needed' ? 'cart' : 'needed';
+                                            setItems(items.map(i=>i.id===item.id?{...i, status:newS}:i));
+                                        }}
+                                        className={`group flex items-center justify-between p-3.5 bg-white rounded-2xl border transition-all duration-300 cursor-pointer animate-enter hover:shadow-md ${item.status==='cart'?'border-green-300 bg-green-50/30 opacity-60':'border-gray-100 shadow-sm'}`}>
+                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${item.status==='cart'?'bg-green-500 border-green-500':'border-gray-300'}`}>
+                                                    {item.status==='cart' && <Icon name="Check" size={12} className="text-white stroke-[4]" />}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className={`font-semibold text-sm ${item.status==='cart'?'line-through text-gray-400':'text-gray-800'}`}>{item.name}</p>
+                                                    <div className="flex gap-1 mt-0.5">{item.places.map(p=><span key={p} className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">{p}</span>)}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </>
+                        )}
+
+                        {/* INVENTORY VIEW */}
+                        {activeTab === 'inventory' && (
+                            <>
+                                <div className="grid grid-cols-2 gap-2 mb-2 animate-enter">
+                                    <button onClick={()=>setShowAiModal('dictation')} className="bg-indigo-600 text-white p-3 rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 text-sm font-bold active:scale-95 transition">
+                                        <Icon name="Mic" size={16} /> Dictar
+                                    </button>
+                                    <div className="bg-white text-gray-600 border border-gray-200 p-3 rounded-2xl shadow-sm flex items-center justify-center gap-2 text-sm font-bold relative overflow-hidden active:scale-95 transition">
+                                        <Icon name="Upload" size={16} /> Importar
+                                        <input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                    </div>
+                                </div>
+                                <div className="bg-green-50 p-3 rounded-2xl border border-green-100 flex justify-between items-center mb-2">
+                                    <span className="text-xs font-bold text-green-800 flex items-center gap-1"><Icon name="Home" size={14}/> {filtered.length} productos</span>
+                                    <button onClick={()=>{setShowAiModal('chef'); handleAiChef()}} className="text-xs bg-white text-green-700 px-3 py-1.5 rounded-lg shadow-sm border border-green-100 font-bold flex items-center gap-1 hover:bg-green-50"><Icon name="Chef" size={14}/> Chef</button>
+                                </div>
+                                {filtered.map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-gray-100 shadow-sm animate-enter">
+                                        <div className="min-w-0 pl-1">
+                                            <p className="font-semibold text-gray-700 text-sm">{item.name}</p>
+                                            <div className="flex gap-1 mt-1 opacity-60">{item.places.map(p=><span key={p} className="text-[9px] bg-gray-100 px-1 rounded">{p}</span>)}</div>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <button onClick={()=>setItems(items.map(i=>i.id===item.id?{...i,status:'needed'}:i))} className="p-2 text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100"><Icon name="Plus" size={16}/></button>
+                                            <button onClick={()=>{if(confirm('¿Borrar?'))setItems(items.filter(i=>i.id!==item.id))}} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl"><Icon name="Trash" size={16}/></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </>
+                        )}
+
+                        {/* HISTORY VIEW */}
+                        {activeTab === 'history' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-50 overflow-hidden animate-enter">
+                                {items.sort((a,b)=>(b.lastBought||'').localeCompare(a.lastBought||'')).map(item => (
+                                    <div key={item.id} className="flex items-center justify-between p-4 hover:bg-gray-50">
+                                        <div className="min-w-0"><p className="font-medium text-gray-700 text-sm truncate">{item.name}</p><p className="text-[10px] text-gray-400">{item.places.join(', ')}</p></div>
+                                        <span className="text-[10px] font-mono bg-gray-100 text-gray-500 px-2 py-1 rounded-md">{item.lastBought || '-'}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* CHECKOUT BUTTON */}
+                    {activeTab === 'shopping' && items.some(i => i.status === 'cart') && (
+                        <div className="absolute bottom-6 left-4 right-4 animate-enter z-20">
+                            <button onClick={handleCheckout} className="w-full bg-gray-900 text-white p-4 rounded-2xl shadow-2xl shadow-gray-400/50 flex items-center justify-between hover:scale-[1.02] transition-transform active:scale-95">
+                                <div className="text-left pl-2">
+                                    <span className="block text-[10px] text-gray-400 font-bold uppercase tracking-widest">Listo</span>
+                                    <span className="font-bold text-lg">{items.filter(i=>i.status==='cart').length} productos</span>
+                                </div>
+                                <div className="bg-white/10 p-2 rounded-full"><Icon name="ArrowRight" /></div>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* MODAL IA / SETTINGS / CONFIRM */}
+                    {(showAiModal || showSettings || confirmModal.show) && (
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4 animate-enter">
+                            <div className="bg-white w-full rounded-3xl p-6 shadow-2xl relative max-h-[80%] overflow-auto">
+                                <button onClick={()=>{setShowAiModal(null); setShowSettings(null); if(confirmModal.action) setConfirmModal({show:false})}} className="absolute top-4 right-4 p-1 bg-gray-100 rounded-full text-gray-500"><Icon name="X" size={16}/></button>
+
+                                {confirmModal.show ? (
+                                    <div className="text-center pt-2">
+                                        <h3 className="text-lg font-bold mb-2">{confirmModal.title}</h3>
+                                        <p className="text-gray-500 text-sm mb-6">{confirmModal.message}</p>
+                                        <button onClick={confirmModal.action} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">Confirmar</button>
+                                    </div>
+                                ) : showSettings ? (
+                                    <div className="pt-2">
+                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="Settings" /> Configurar IA</h3>
+                                        <p className="text-xs text-gray-500 mb-4">Ingresa tu clave de Google AI Studio:</p>
+                                        <input type="text" value={userApiKey} onChange={e=>setUserApiKey(e.target.value)} placeholder="AIza..." className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl mb-4 font-mono text-xs outline-none focus:border-indigo-500"/>
+                                        <button onClick={saveApiKey} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">Guardar Clave</button>
+                                    </div>
+                                ) : (
+                                    <div className="pt-2">
+                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-indigo-600">
+                                            {showAiModal==='dictation' ? <><Icon name="Mic"/> Dictar</> : showAiModal==='chef' ? <><Icon name="Chef"/> Chef</> : <><Icon name="Sparkles"/> Planear</>}
+                                        </h3>
+                                        {!aiResult && !isAiLoading && (
+                                            <>
+                                                {showAiModal!=='chef' && <textarea autoFocus rows="3" placeholder="Escribe aquí..." value={aiPromptInput} onChange={e=>setAiPromptInput(e.target.value)} className="w-full bg-gray-50 border-gray-200 border p-3 rounded-xl text-sm mb-4 outline-none focus:ring-2 ring-indigo-100" />}
+                                                <button onClick={showAiModal==='dictation'?handleAiDictation:showAiModal==='chef'?handleAiChef:handleAiPlanner} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold flex justify-center gap-2 items-center">
+                                                    <Icon name="Sparkles" size={16}/> {showAiModal==='chef'?'Inventar Receta':'Procesar'}
+                                                </button>
+                                            </>
+                                        )}
+                                        {isAiLoading && <div className="py-8 text-center text-indigo-500"><div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-2"></div>Pensando...</div>}
+                                        {aiResult && <div className="bg-indigo-50 p-4 rounded-xl text-sm text-gray-700 whitespace-pre-wrap">{aiResult}</div>}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<SuperApp />);
+    </script>
+</body>
+</html>
