@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud File Organizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-gray-950 text-gray-100 font-['Inter'] min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-gray-900 border-b border-gray-800 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-bold text-white">Cloud File Organizer</h1>
+                <p class="text-sm text-gray-400">Indexa, etiqueta y sincroniza tus archivos</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="triggerScan()" id="btn-scan"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors">
+                    Escanear
+                </button>
+                <button onclick="triggerAutoTag()" id="btn-tag"
+                    class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors">
+                    Auto-Tag AI
+                </button>
+                <button onclick="triggerNotionSync()" id="btn-notion"
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">
+                    Sync Notion
+                </button>
+                <button onclick="showDuplicates()" id="btn-dupes"
+                    class="px-4 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg text-sm font-medium transition-colors">
+                    Duplicados
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <div class="max-w-7xl mx-auto px-6 py-4">
+        <div id="stats-cards" class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <!-- Filled by JS -->
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="max-w-7xl mx-auto px-6 pb-4">
+        <div class="flex flex-wrap gap-3 items-center bg-gray-900 rounded-xl p-4 border border-gray-800">
+            <input type="text" id="filter-search" placeholder="Buscar archivos..."
+                class="flex-1 min-w-[200px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <select id="filter-cloud"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Todas las nubes</option>
+            </select>
+            <select id="filter-type"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Todos los tipos</option>
+            </select>
+            <select id="filter-tag"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Todos los tags</option>
+            </select>
+            <button onclick="clearFilters()"
+                class="px-3 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                Limpiar
+            </button>
+        </div>
+    </div>
+
+    <!-- Files Table -->
+    <div class="max-w-7xl mx-auto px-6 pb-8">
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b border-gray-800 text-left text-sm text-gray-400">
+                            <th class="px-4 py-3 font-medium">Nombre</th>
+                            <th class="px-4 py-3 font-medium w-20">Tipo</th>
+                            <th class="px-4 py-3 font-medium w-24 text-right">Tamaño</th>
+                            <th class="px-4 py-3 font-medium w-28">Nube</th>
+                            <th class="px-4 py-3 font-medium">Tags</th>
+                            <th class="px-4 py-3 font-medium w-28">Modificado</th>
+                            <th class="px-4 py-3 font-medium w-20">Link</th>
+                        </tr>
+                    </thead>
+                    <tbody id="files-table-body">
+                        <!-- Filled by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div id="pagination" class="flex items-center justify-between px-4 py-3 border-t border-gray-800">
+                <span id="pagination-info" class="text-sm text-gray-400"></span>
+                <div class="flex gap-2">
+                    <button onclick="goToPage(currentPage - 1)" id="btn-prev"
+                        class="px-3 py-1 bg-gray-800 rounded text-sm hover:bg-gray-700 disabled:opacity-50">
+                        Anterior
+                    </button>
+                    <button onclick="goToPage(currentPage + 1)" id="btn-next"
+                        class="px-3 py-1 bg-gray-800 rounded text-sm hover:bg-gray-700 disabled:opacity-50">
+                        Siguiente
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Duplicates Modal -->
+    <div id="dupes-modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div class="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+                <h2 class="text-lg font-semibold">Archivos Duplicados</h2>
+                <div class="flex gap-3 items-center">
+                    <select id="dupes-method" onchange="loadDuplicates()"
+                        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm">
+                        <option value="hash">Por contenido (hash)</option>
+                        <option value="name">Por nombre</option>
+                    </select>
+                    <button onclick="closeDuplicates()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                </div>
+            </div>
+            <div id="dupes-content" class="overflow-y-auto p-6">
+                <!-- Filled by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Tag Edit Modal -->
+    <div id="tag-modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div class="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-md p-6">
+            <h3 class="text-lg font-semibold mb-4">Editar Tags</h3>
+            <p id="tag-modal-filename" class="text-sm text-gray-400 mb-3"></p>
+            <div id="tag-modal-tags" class="flex flex-wrap gap-2 mb-4">
+                <!-- Filled by JS -->
+            </div>
+            <div class="flex gap-2">
+                <input type="text" id="tag-modal-input" placeholder="Nuevo tag..."
+                    class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="addTagFromModal()"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">
+                    Agregar
+                </button>
+            </div>
+            <button onclick="closeTagModal()" class="mt-4 text-sm text-gray-400 hover:text-white">Cerrar</button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="hidden fixed bottom-6 right-6 bg-gray-800 border border-gray-700 rounded-xl px-5 py-3 text-sm shadow-xl z-50 transition-all">
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

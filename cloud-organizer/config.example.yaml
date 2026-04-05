@@ -1,0 +1,39 @@
+# Cloud File Organizer - Configuration
+# Copy this file to config.yaml and fill in your credentials.
+# NEVER commit config.yaml to version control.
+
+google_drive:
+  credentials_file: "credentials.json"   # OAuth2 desktop app credentials from Google Cloud Console
+  # Scopes are pre-configured; no need to change unless you need write access
+
+onedrive:
+  client_id: "YOUR_AZURE_APP_CLIENT_ID"
+  client_secret: "YOUR_AZURE_APP_CLIENT_SECRET"
+  tenant_id: "common"                     # Use "common" for personal accounts
+
+dropbox:
+  access_token: "YOUR_DROPBOX_ACCESS_TOKEN"
+  # Generate at: https://www.dropbox.com/developers/apps
+
+icloud:
+  # iCloud has no public API. We scan the local sync folder instead.
+  # macOS default: ~/Library/Mobile Documents/com~apple~CloudDocs
+  # Windows default: ~/iCloudDrive
+  local_path: "~/Library/Mobile Documents/com~apple~CloudDocs"
+
+notion:
+  api_key: "secret_YOUR_NOTION_INTEGRATION_TOKEN"
+  database_id: "YOUR_NOTION_DATABASE_ID"
+  # Create an integration at: https://www.notion.so/my-integrations
+  # Share your database with the integration
+
+gemini:
+  api_key: "YOUR_GEMINI_API_KEY"
+  model: "gemini-2.0-flash"
+
+database:
+  path: "cloud_organizer.db"              # SQLite database path (relative to project root)
+
+web:
+  host: "127.0.0.1"
+  port: 5050
