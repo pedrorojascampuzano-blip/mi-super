@@ -6,6 +6,22 @@ import * as tree from './panel-tree.js';
 
 let layout = null;
 let container = null;
+let savedLayoutBeforeFlow = null;
+
+const MODULE_META = {
+  vault: { icon: '○', label: 'Accounts' },
+  dashboard: { icon: '▤', label: 'Dashboard' },
+  tasks: { icon: '✓', label: 'Tasks' },
+  comms: { icon: '✉', label: 'Comms' },
+  contacts: { icon: '☺', label: 'Contacts' },
+  'ai-chat': { icon: '✦', label: 'AI Chat' },
+  flow: { icon: '◉', label: 'Flow' },
+  empty: { icon: '+', label: 'Empty' },
+};
+
+function metaFor(module) {
+  return MODULE_META[module] || { icon: '□', label: module.charAt(0).toUpperCase() + module.slice(1) };
+}
 
 export function initPanelManager(el, savedLayout) {
   container = el;
@@ -52,7 +68,8 @@ function renderNode(node) {
 
 function renderPanel(panel) {
   const contentEl = h('div', { class: 'panel-content' });
-  const moduleLabel = panel.module.charAt(0).toUpperCase() + panel.module.slice(1);
+  const meta = metaFor(panel.module);
+  const moduleLabel = `${meta.icon} ${meta.label}`;
 
   const panelEl = h('div', {
     class: `panel${panel.collapsed ? ' collapsed' : ''}`,
@@ -146,18 +163,70 @@ function initResize(handle, splitNode) {
   });
 }
 
+// Helper: find first non-collapsed panel id
+function firstActivePanelId(node = layout) {
+  if (!node) return null;
+  if (node.type === 'panel' && !node.collapsed) return node.id;
+  if (node.type === 'split') return firstActivePanelId(node.left) || firstActivePanelId(node.right);
+  return null;
+}
+
+// Helper: collect all panel ids in DOM order
+function collectPanelIds(node, acc = []) {
+  if (!node) return acc;
+  if (node.type === 'panel') acc.push(node.id);
+  if (node.type === 'split') {
+    collectPanelIds(node.left, acc);
+    collectPanelIds(node.right, acc);
+  }
+  return acc;
+}
+
 // Listen for navigation events
 bus.on('navigate', (module) => {
-  // Find first non-collapsed panel and switch its module
-  function findFirst(node) {
-    if (!node) return null;
-    if (node.type === 'panel' && !node.collapsed) return node.id;
-    if (node.type === 'split') return findFirst(node.left) || findFirst(node.right);
-    return null;
-  }
-  const panelId = findFirst(layout);
+  const panelId = firstActivePanelId();
   if (panelId) {
     layout = tree.setModule(layout, panelId, module);
+    render();
+  }
+});
+
+// Phase 2: keyboard/command shortcut bus listeners
+bus.on('panel:split', (direction) => {
+  const panelId = firstActivePanelId();
+  if (panelId) handleSplit(panelId, direction);
+});
+
+bus.on('panel:close-active', () => {
+  const panelId = firstActivePanelId();
+  if (panelId) handleClose(panelId);
+});
+
+bus.on('panel:focus', (index) => {
+  const ids = collectPanelIds(layout);
+  const target = ids[index];
+  if (!target || !container) return;
+  const el = container.querySelector(`[data-panel-id="${target}"]`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Brief highlight
+    el.style.outline = '2px solid var(--accent)';
+    setTimeout(() => { el.style.outline = ''; }, 600);
+  }
+});
+
+// Phase 5: flow mode - replace layout with single flow panel
+bus.on('flow:enter', () => {
+  if (savedLayoutBeforeFlow) return;
+  savedLayoutBeforeFlow = tree.serialize(layout);
+  layout = tree.createPanel('flow');
+  render();
+});
+
+bus.on('flow:exit', () => {
+  if (savedLayoutBeforeFlow) {
+    layout = tree.deserialize(savedLayoutBeforeFlow);
+    savedLayoutBeforeFlow = null;
     render();
   }
 });

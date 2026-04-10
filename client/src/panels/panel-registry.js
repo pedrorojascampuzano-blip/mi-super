@@ -33,14 +33,12 @@ export function getRegisteredModules() {
 
 // Register built-in modules
 registerModule('vault', () => import('../views/vault.js').then(m => ({ render: (c) => m.renderVault(c) })));
-registerModule('dashboard', () => Promise.resolve({
-  render(container) {
-    container.innerHTML = `<div class="p-4">
-      <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:12px">Dashboard</h2>
-      <div class="text-sm text-secondary">Connect your accounts in the Accounts panel to see your unified feed here.</div>
-    </div>`;
-  }
-}));
+registerModule('dashboard', () => import('../views/dashboard.js'));
+registerModule('tasks', () => import('../views/tasks.js'));
+registerModule('comms', () => import('../views/comms.js'));
+registerModule('contacts', () => import('../views/contacts.js'));
+registerModule('flow', () => import('../views/flow.js'));
+registerModule('ai-chat', () => import('../views/ai-chat.js'));
 registerModule('empty', () => Promise.resolve({
   render(container) {
     container.innerHTML = `<div class="p-4 text-sm text-muted" style="display:flex;align-items:center;justify-content:center;height:100%">

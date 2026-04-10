@@ -6,6 +6,7 @@ import { createTopbar } from './shell/topbar.js';
 import { createStatusbar } from './shell/statusbar.js';
 import { initPanelManager, getLayout } from './panels/panel-manager.js';
 import { initCommandPalette } from './shell/command-palette.js';
+import { initKeyboard } from './shell/keyboard.js';
 import { get } from './lib/api.js';
 
 const app = document.getElementById('app');
@@ -48,6 +49,7 @@ async function renderApp(user) {
   // Initialize panel system
   initPanelManager(workspace, savedLayout);
   initCommandPalette();
+  initKeyboard();
 
   // Save layout on changes (debounced)
   let saveTimer;
@@ -64,6 +66,19 @@ async function renderApp(user) {
   // Handle sign out
   bus.on('auth:changed', (user) => {
     if (!user) boot();
+  });
+
+  // Handle sync:all command from palette
+  bus.on('sync:all', async () => {
+    try {
+      const { syncAll } = await import('./lib/sync.js');
+      const services = accounts
+        .filter(a => ['notion', 'gmail', 'slack', 'linear', 'calendar', 'whatsapp'].includes(a.provider))
+        .map(a => a.provider);
+      await syncAll(services);
+    } catch (err) {
+      console.error('Sync all failed:', err);
+    }
   });
 }
 
