@@ -72,6 +72,10 @@ export function serialize(tree) {
 export function deserialize(json) {
   try {
     const tree = JSON.parse(json);
+    // Validate: must have a 'type' property (panel or split)
+    if (!tree || (tree.type !== 'panel' && tree.type !== 'split')) {
+      return defaultLayout();
+    }
     // Update nextId to avoid collisions
     const ids = [];
     function collectIds(node) {

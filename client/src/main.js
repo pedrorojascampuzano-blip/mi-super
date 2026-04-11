@@ -30,11 +30,14 @@ async function renderApp(user) {
     accounts = await get('/accounts');
   } catch { /* server might not be running */ }
 
-  // Load saved layout
+  // Load saved layout - only use if it's a valid non-empty tree
   let savedLayout = null;
   try {
     const prefs = await get('/preferences');
-    savedLayout = prefs?.panel_layout ? JSON.stringify(prefs.panel_layout) : null;
+    const pl = prefs?.panel_layout;
+    if (pl && typeof pl === 'object' && (pl.type === 'panel' || pl.type === 'split')) {
+      savedLayout = JSON.stringify(pl);
+    }
   } catch { /* use default */ }
 
   // Build shell
