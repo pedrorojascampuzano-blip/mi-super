@@ -7,7 +7,7 @@ import { createStatusbar } from './shell/statusbar.js';
 import { initPanelManager, getLayout } from './panels/panel-manager.js';
 import { initCommandPalette } from './shell/command-palette.js';
 import { initKeyboard } from './shell/keyboard.js';
-import { get } from './lib/api.js';
+import { get, put } from './lib/api.js';
 
 const app = document.getElementById('app');
 
@@ -57,7 +57,6 @@ async function renderApp(user) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
-        const { put } = await import('./lib/api.js');
         await put('/preferences', { panel_layout: JSON.parse(layoutJson) });
       } catch { /* silent */ }
     }, 2000);

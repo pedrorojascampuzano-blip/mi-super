@@ -1,4 +1,5 @@
 import { getAdminClient } from '../services/supabase.js';
+import { seedAccountsForUser } from '../services/bootstrap.js';
 
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization;
@@ -15,6 +16,12 @@ export async function requireAuth(req, res, next) {
     }
     req.user = data.user;
     req.token = token;
+
+    // Fire-and-forget: seed env credentials for this user on first auth
+    seedAccountsForUser(data.user).catch(err =>
+      console.warn('[bootstrap] seed error:', err.message)
+    );
+
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Authentication failed' });
