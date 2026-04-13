@@ -148,48 +148,82 @@ itemsRouter.get('/:id', asyncHandler(async (req, res) => {
   res.json(data);
 }));
 
-// Extract contact info from synced items and upsert to contacts table
+// Extract contact info from synced items and upsert to contacts table.
+// Two sources:
+//   1. Explicit contact items (item_type === 'contact') — from Notion Contacts DB, etc.
+//   2. Email/sender metadata on messages — from Gmail, Slack, WhatsApp.
 async function extractContacts(userId, items, sb) {
-  const contacts = new Map(); // email -> contact data
+  const byEmail = new Map();
+  const byName = new Map(); // for contact-items without email
 
-  for (const item of items) {
-    const md = item.metadata || {};
-    const candidates = [md.from, md.to, md.sender, md.recipient].filter(Boolean);
-
-    for (const candidate of candidates) {
-      if (typeof candidate !== 'string') continue;
-
-      // Extract "Name <email@domain>" or plain email
-      const emailMatch = candidate.match(/<([^>]+@[^>]+)>/) || candidate.match(/([^\s<>]+@[^\s<>]+)/);
-      if (!emailMatch) continue;
-
-      const email = emailMatch[1].toLowerCase();
-      if (!email.includes('@')) continue;
-
-      const name = candidate.replace(/<[^>]+>/, '').trim() || email.split('@')[0];
-
-      if (!contacts.has(email)) {
-        contacts.set(email, {
-          user_id: userId,
-          email,
-          name,
-          sources: [item.source],
-          metadata: {},
-          last_interaction_at: item.source_timestamp,
-        });
-      } else {
-        const existing = contacts.get(email);
-        if (!existing.sources.includes(item.source)) {
-          existing.sources.push(item.source);
-        }
-        if (item.source_timestamp > existing.last_interaction_at) {
-          existing.last_interaction_at = item.source_timestamp;
-        }
-      }
+  function upsertByEmail(email, name, source, timestamp, extra = {}) {
+    const key = email.toLowerCase();
+    if (!byEmail.has(key)) {
+      byEmail.set(key, {
+        user_id: userId,
+        email: key,
+        name: name || key.split('@')[0],
+        phone: extra.phone || null,
+        sources: [source],
+        metadata: extra.metadata || {},
+        last_interaction_at: timestamp,
+      });
+    } else {
+      const existing = byEmail.get(key);
+      if (!existing.sources.includes(source)) existing.sources.push(source);
+      if (timestamp > existing.last_interaction_at) existing.last_interaction_at = timestamp;
+      if (name && !existing.name) existing.name = name;
+      if (extra.phone && !existing.phone) existing.phone = extra.phone;
     }
   }
 
-  for (const contact of contacts.values()) {
+  for (const item of items) {
+    const md = item.metadata || {};
+
+    // Source 1: explicit contact items (e.g. Notion Contacts DB)
+    if (item.item_type === 'contact') {
+      const email = md.email || md.correo || null;
+      const phone = md.phone || md.phone_number || md.telefono || null;
+      const name = item.title || md.name || null;
+
+      if (email && typeof email === 'string') {
+        upsertByEmail(email, name, item.source, item.source_timestamp, {
+          phone,
+          metadata: { notion_page_id: item.source_id, url: md.url },
+        });
+      } else if (name) {
+        // No email — use name as fallback key
+        const key = `name:${name.toLowerCase().trim()}`;
+        if (!byName.has(key)) {
+          byName.set(key, {
+            user_id: userId,
+            email: `${name.toLowerCase().replace(/\s+/g, '.')}@notion.local`,
+            name,
+            phone,
+            sources: [item.source],
+            metadata: { notion_page_id: item.source_id, url: md.url, no_email: true },
+            last_interaction_at: item.source_timestamp,
+          });
+        }
+      }
+      continue;
+    }
+
+    // Source 2: email/sender metadata on message/event items
+    const candidates = [md.from, md.to, md.sender, md.recipient].filter(Boolean);
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') continue;
+      const emailMatch = candidate.match(/<([^>]+@[^>]+)>/) || candidate.match(/([^\s<>]+@[^\s<>]+)/);
+      if (!emailMatch) continue;
+      const email = emailMatch[1].toLowerCase();
+      if (!email.includes('@')) continue;
+      const name = candidate.replace(/<[^>]+>/, '').trim() || email.split('@')[0];
+      upsertByEmail(email, name, item.source, item.source_timestamp);
+    }
+  }
+
+  const allContacts = [...byEmail.values(), ...byName.values()];
+  for (const contact of allContacts) {
     await sb.from('contacts').upsert(contact, { onConflict: 'user_id,email' });
   }
 }

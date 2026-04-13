@@ -36,7 +36,16 @@ export const config = {
       ? { bot_token: process.env.SLACK_BOT_TOKEN }
       : null,
     notion: process.env.NOTION_API_KEY
-      ? { api_key: process.env.NOTION_API_KEY }
+      ? {
+          api_key: process.env.NOTION_API_KEY,
+          databases: {
+            tasks: process.env.NOTION_DB_TASKS || null,
+            projects: process.env.NOTION_DB_PROJECTS || null,
+            contacts: process.env.NOTION_DB_CONTACTS || null,
+            organizations: process.env.NOTION_DB_ORGANIZATIONS || null,
+            resources: process.env.NOTION_DB_RESOURCES || null,
+          },
+        }
       : null,
     linear: process.env.LINEAR_API_KEY
       ? { api_key: process.env.LINEAR_API_KEY }

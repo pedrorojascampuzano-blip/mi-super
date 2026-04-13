@@ -3,6 +3,7 @@ import { h, mount } from '../lib/dom.js';
 import { post } from '../lib/api.js';
 import { getItems } from '../lib/cache.js';
 import { fetchItems, syncService } from '../lib/sync.js';
+import { errorBanner } from '../lib/ui.js';
 
 const SOURCE_COLORS = {
   gmail: '#EA4335',
@@ -29,6 +30,7 @@ export function render(container, _context) {
   let filter = 'all';
   let loading = true;
   let syncing = false;
+  let syncErrors = [];
   let replyText = '';
 
   async function loadMessages() {
@@ -47,17 +49,21 @@ export function render(container, _context) {
   async function handleSync() {
     if (syncing) return;
     syncing = true;
+    syncErrors = [];
     draw();
-    try {
-      await Promise.allSettled([
-        syncService('gmail'),
-        syncService('slack'),
-      ]);
-      await loadMessages();
-    } finally {
-      syncing = false;
-      draw();
+    for (const service of ['gmail', 'slack', 'whatsapp']) {
+      try {
+        const res = await syncService(service);
+        if (res.errors?.length) {
+          syncErrors.push(...res.errors.map(e => `${service}: ${e}`));
+        }
+      } catch (err) {
+        syncErrors.push(`${service}: ${err.message}`);
+      }
     }
+    await loadMessages();
+    syncing = false;
+    draw();
   }
 
   function filteredMessages() {
@@ -133,6 +139,7 @@ export function render(container, _context) {
           filterTab('slack', 'Slack'),
           filterTab('whatsapp', 'WhatsApp'),
         ]),
+        errorBanner(syncErrors),
         h('div', { style: { flex: '1', overflowY: 'auto' } },
           loading
             ? h('div', { class: 'p-4 text-sm text-muted' }, 'Loading...')

@@ -113,6 +113,50 @@ router.put('/:id', asyncHandler(async (req, res) => {
   res.json(data);
 }));
 
+// Test an account's credentials - calls plugin.validate() and updates status
+router.post('/:id/test', asyncHandler(async (req, res) => {
+  const sb = getAdminClient();
+  const { data: account, error: fetchErr } = await sb
+    .from('accounts')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .single();
+
+  if (fetchErr || !account) return res.status(404).json({ error: 'Account not found' });
+
+  const { getPlugin } = await import('../integrations/registry.js');
+  const plugin = getPlugin(account.provider);
+  if (!plugin) return res.status(400).json({ ok: false, error: `Unknown provider: ${account.provider}` });
+
+  const { decrypt } = await import('../lib/crypto.js');
+  const credentials = decrypt(
+    account.credentials_encrypted,
+    account.credentials_iv,
+    account.credentials_tag
+  );
+
+  let ok = false;
+  let errMessage = null;
+  try {
+    ok = await plugin.validate(credentials);
+  } catch (err) {
+    errMessage = err.message;
+  }
+
+  // Update status based on result
+  const newStatus = ok ? 'connected' : 'error';
+  const metadata = { ...(account.metadata || {}) };
+  if (!ok && errMessage) metadata.last_error = errMessage;
+  else delete metadata.last_error;
+
+  await sb.from('accounts')
+    .update({ status: newStatus, metadata, updated_at: new Date().toISOString() })
+    .eq('id', account.id);
+
+  res.json({ ok, status: newStatus, error: errMessage });
+}));
+
 // Delete an account
 router.delete('/:id', asyncHandler(async (req, res) => {
   const sb = getAdminClient();

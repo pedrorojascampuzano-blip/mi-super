@@ -4,6 +4,7 @@ import { bus } from '../lib/events.js';
 import { getItems } from '../lib/cache.js';
 import { fetchItems, syncService } from '../lib/sync.js';
 import { get } from '../lib/api.js';
+import { errorBanner, statusLine } from '../lib/ui.js';
 
 const SOURCE_COLORS = {
   notion: '#000',
@@ -150,14 +151,8 @@ export function render(container, _context) {
         ]),
       ]),
       // Sync status / errors
-      syncStatus
-        ? h('div', { class: 'px-3 py-2 text-xs', style: { borderBottom: '1px solid var(--border)', color: syncing ? 'var(--accent)' : 'var(--success)' } }, syncStatus)
-        : null,
-      syncErrors.length > 0
-        ? h('div', { class: 'px-3 py-2', style: { borderBottom: '1px solid var(--border)', background: 'rgba(239,68,68,0.05)' } },
-            syncErrors.map(e => h('div', { class: 'text-xs', style: { color: 'var(--error)', marginBottom: '2px' } }, e))
-          )
-        : null,
+      statusLine(syncStatus, syncing ? 'info' : 'success'),
+      errorBanner(syncErrors),
       // List
       h('div', { style: { flex: '1', overflowY: 'auto' } },
         loading

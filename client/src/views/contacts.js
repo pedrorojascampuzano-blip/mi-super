@@ -76,6 +76,12 @@ export function render(container, _context) {
 
   function renderContactItem(contact) {
     const isActive = selected?.id === contact.id;
+    const noEmail = contact.metadata?.no_email;
+    const displayContact = noEmail
+      ? (contact.phone || (contact.sources || []).join(', ') || '—')
+      : contact.email;
+    const sources = contact.sources || [];
+
     return h('div', {
       class: `contact-item${isActive ? ' active' : ''}`,
       style: isActive ? { background: 'var(--bg-tertiary)' } : {},
@@ -88,8 +94,13 @@ export function render(container, _context) {
     }, [
       h('div', { class: 'contact-avatar' }, initial(contact.name)),
       h('div', { style: { flex: '1', minWidth: '0' } }, [
-        h('div', { class: 'truncate', style: { fontWeight: '500', fontSize: '0.85rem' } }, contact.name || contact.email),
-        h('div', { class: 'truncate text-xs text-muted' }, contact.email),
+        h('div', { class: 'truncate', style: { fontWeight: '500', fontSize: '0.85rem' } }, contact.name || displayContact),
+        h('div', { class: 'flex items-center gap-2' }, [
+          h('div', { class: 'truncate text-xs text-muted', style: { flex: '1' } }, displayContact),
+          ...sources.slice(0, 2).map(s =>
+            h('span', { class: 'text-xs text-muted', style: { fontSize: '0.6rem', padding: '1px 4px', background: 'var(--bg-tertiary)', borderRadius: '3px' } }, s)
+          ),
+        ]),
       ]),
     ]);
   }

@@ -1,60 +1,108 @@
 // Bootstrap seeder - auto-inserts env-configured credentials into the
-// accounts table when a user signs in. Used for single-user deployments
-// where you don't want to manually enter credentials via the UI.
+// accounts table when a user signs in. Used for single-user deployments.
 //
-// Only seeds accounts for the user whose email matches BOOTSTRAP_USER_EMAIL.
-// Each provider is only seeded once (skipped if already present).
+// - Only seeds for the user matching BOOTSTRAP_USER_EMAIL (or first user if unset)
+// - Skips providers where the user already has a manually-entered account (label != "... (env)")
+// - Re-encrypts and updates env-labeled accounts if env credentials change shape
+//   (e.g., Notion plugin now includes `databases` field)
 
 import { config } from '../config.js';
 import { getAdminClient } from './supabase.js';
-import { encrypt } from '../lib/crypto.js';
+import { encrypt, decrypt } from '../lib/crypto.js';
 
-// Track which users we've already bootstrapped in this process
 const bootstrapped = new Set();
+
+function envLabel(provider) {
+  return `${provider} (env)`;
+}
+
+function shapesEqual(a, b) {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
 
 export async function seedAccountsForUser(user) {
   if (!user?.id || !user?.email) return;
   if (bootstrapped.has(user.id)) return;
 
-  // Only bootstrap the configured email (if set). If not set, bootstrap
-  // the first user to sign in (useful for dev/single-user setups).
-  if (config.bootstrapUserEmail && user.email !== config.bootstrapUserEmail) {
-    return;
-  }
+  if (config.bootstrapUserEmail && user.email !== config.bootstrapUserEmail) return;
 
   bootstrapped.add(user.id);
 
   const sb = getAdminClient();
 
-  // Get existing accounts for this user so we don't overwrite manual entries
+  // Fetch all existing accounts for this user (with credentials for shape diffing)
   const { data: existing } = await sb
     .from('accounts')
-    .select('provider')
+    .select('id, provider, label, credentials_encrypted, credentials_iv, credentials_tag')
     .eq('user_id', user.id);
 
-  const existingProviders = new Set((existing || []).map(a => a.provider));
-  const toSeed = Object.entries(config.bootstrapCredentials || {})
-    .filter(([provider, creds]) => creds && !existingProviders.has(provider));
+  const existingByProvider = new Map();
+  for (const row of existing || []) {
+    if (!existingByProvider.has(row.provider)) existingByProvider.set(row.provider, []);
+    existingByProvider.get(row.provider).push(row);
+  }
 
-  if (toSeed.length === 0) return;
+  let inserted = 0;
+  let updated = 0;
 
-  const rows = toSeed.map(([provider, credentials]) => {
-    const { encrypted, iv, tag } = encrypt(credentials);
-    return {
-      user_id: user.id,
-      provider,
-      label: `${provider} (env)`,
-      credentials_encrypted: encrypted,
-      credentials_iv: iv,
-      credentials_tag: tag,
-      status: 'connected',
-    };
-  });
+  for (const [provider, credentials] of Object.entries(config.bootstrapCredentials || {})) {
+    if (!credentials) continue;
 
-  const { error } = await sb.from('accounts').insert(rows);
-  if (error) {
-    console.warn(`[bootstrap] Seed failed for ${user.email}: ${error.message}`);
-  } else {
-    console.log(`[bootstrap] Seeded ${rows.length} accounts for ${user.email}: ${rows.map(r => r.provider).join(', ')}`);
+    const rows = existingByProvider.get(provider) || [];
+    const envRow = rows.find(r => r.label === envLabel(provider));
+    const nonEnvRows = rows.filter(r => r.label !== envLabel(provider));
+
+    // If user has a manual (non-env) account for this provider, skip
+    if (nonEnvRows.length > 0 && !envRow) continue;
+
+    if (!envRow) {
+      // Insert new env-seeded account
+      const { encrypted, iv, tag } = encrypt(credentials);
+      const { error } = await sb.from('accounts').insert({
+        user_id: user.id,
+        provider,
+        label: envLabel(provider),
+        credentials_encrypted: encrypted,
+        credentials_iv: iv,
+        credentials_tag: tag,
+        status: 'connected',
+      });
+      if (error) console.warn(`[bootstrap] insert ${provider}: ${error.message}`);
+      else inserted++;
+      continue;
+    }
+
+    // Env row exists — check if credentials shape changed
+    try {
+      const currentCreds = decrypt(
+        envRow.credentials_encrypted,
+        envRow.credentials_iv,
+        envRow.credentials_tag
+      );
+      if (!shapesEqual(currentCreds, credentials)) {
+        const { encrypted, iv, tag } = encrypt(credentials);
+        const { error } = await sb.from('accounts')
+          .update({
+            credentials_encrypted: encrypted,
+            credentials_iv: iv,
+            credentials_tag: tag,
+            status: 'connected',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', envRow.id);
+        if (error) console.warn(`[bootstrap] update ${provider}: ${error.message}`);
+        else updated++;
+      }
+    } catch (err) {
+      console.warn(`[bootstrap] decrypt failed for ${provider}: ${err.message}`);
+    }
+  }
+
+  if (inserted || updated) {
+    console.log(`[bootstrap] ${user.email}: ${inserted} inserted, ${updated} updated`);
   }
 }
