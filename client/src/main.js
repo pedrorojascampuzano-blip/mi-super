@@ -42,12 +42,23 @@ async function renderApp(user) {
 
   // Build shell
   const workspace = h('div', { class: 'workspace' });
+  const statusbarEl = h('div', { id: 'statusbar-container' });
 
   mount(app, h('div', { style: { display: 'flex', flexDirection: 'column', height: '100vh' } }, [
     createTopbar(user),
     workspace,
-    createStatusbar(accounts),
+    statusbarEl,
   ]));
+
+  // Initial statusbar render
+  statusbarEl.appendChild(createStatusbar(accounts));
+
+  // Re-render status bar when accounts change (from vault or sync)
+  bus.on('accounts:changed', (newAccounts) => {
+    accounts = newAccounts;
+    statusbarEl.innerHTML = '';
+    statusbarEl.appendChild(createStatusbar(accounts));
+  });
 
   // Initialize panel system
   initPanelManager(workspace, savedLayout);
@@ -70,14 +81,18 @@ async function renderApp(user) {
     if (!user) boot();
   });
 
-  // Handle sync:all command from palette
+  // Handle sync:all command from palette (also reload accounts first)
   bus.on('sync:all', async () => {
     try {
+      accounts = await get('/accounts');
       const { syncAll } = await import('./lib/sync.js');
       const services = accounts
         .filter(a => ['notion', 'gmail', 'slack', 'linear', 'calendar', 'whatsapp'].includes(a.provider))
         .map(a => a.provider);
       await syncAll(services);
+      // Refresh accounts for last_synced_at
+      accounts = await get('/accounts');
+      bus.emit('accounts:changed', accounts);
     } catch (err) {
       console.error('Sync all failed:', err);
     }

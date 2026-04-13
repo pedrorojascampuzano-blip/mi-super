@@ -304,42 +304,32 @@ body {
   color: var(--error);
 }
 
-/* Vault / Settings */
-.vault-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+/* Vault table */
+.vault-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
 }
-.account-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.account-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.account-provider {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.vault-table th {
+  text-align: left;
+  font-size: 0.65rem;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
 }
-.provider-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: white;
+.vault-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.vault-table tr:hover td {
+  background: var(--bg-tertiary);
+}
+.vault-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 /* Filter tabs */

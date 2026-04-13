@@ -2,7 +2,7 @@
 import { h, mount } from '../lib/dom.js';
 import { bus } from '../lib/events.js';
 import { getItems } from '../lib/cache.js';
-import { fetchItems, syncAll } from '../lib/sync.js';
+import { fetchItems, syncService } from '../lib/sync.js';
 import { get } from '../lib/api.js';
 
 const SOURCE_COLORS = {
@@ -22,6 +22,8 @@ const TYPE_ICONS = {
   contact: '☺',
 };
 
+const SYNCABLE = ['notion', 'gmail', 'slack', 'linear', 'calendar', 'whatsapp'];
+
 function relativeTime(iso) {
   if (!iso) return '';
   const then = new Date(iso).getTime();
@@ -38,19 +40,14 @@ export function render(container, _context) {
   let filter = 'all';
   let loading = true;
   let syncing = false;
-  let accounts = [];
-
-  async function loadAccounts() {
-    try { accounts = await get('/accounts'); } catch { accounts = []; }
-  }
+  let syncStatus = ''; // Live status text during sync
+  let syncErrors = []; // Errors from last sync
 
   async function loadItems() {
-    // 1. Fast path: IndexedDB
     const cached = await getItems({ limit: 100 });
     items = cached;
     draw();
 
-    // 2. Slow path: server fetch
     try {
       const fresh = await fetchItems({ limit: 100 });
       items = fresh;
@@ -63,18 +60,63 @@ export function render(container, _context) {
   async function handleSyncAll() {
     if (syncing) return;
     syncing = true;
+    syncErrors = [];
+    syncStatus = 'Loading accounts...';
     draw();
-    const services = accounts
-      .filter(a => ['notion', 'gmail', 'slack', 'linear', 'calendar', 'whatsapp'].includes(a.provider))
-      .map(a => a.provider);
+
+    // Always reload accounts fresh before syncing
+    let accounts = [];
     try {
-      await syncAll(services);
-      await loadItems();
-    } catch (err) {
-      console.error(err);
+      accounts = await get('/accounts');
+    } catch {
+      syncStatus = '';
+      syncing = false;
+      syncErrors = ['Could not load accounts. Check your connection.'];
+      draw();
+      return;
     }
+
+    const services = accounts
+      .filter(a => SYNCABLE.includes(a.provider))
+      .map(a => a.provider);
+
+    if (services.length === 0) {
+      syncStatus = '';
+      syncing = false;
+      syncErrors = ['No syncable services connected. Add Notion, Gmail, etc. in Accounts.'];
+      draw();
+      return;
+    }
+
+    // Sync each service sequentially with live status
+    let totalItems = 0;
+    for (const service of services) {
+      syncStatus = `Syncing ${service}...`;
+      draw();
+      try {
+        const result = await syncService(service);
+        totalItems += result.items_synced || 0;
+        if (result.errors?.length) {
+          syncErrors.push(...result.errors.map(e => `${service}: ${e}`));
+        }
+      } catch (err) {
+        syncErrors.push(`${service}: ${err.message}`);
+      }
+    }
+
+    syncStatus = totalItems > 0
+      ? `Done — synced ${totalItems} items`
+      : 'Done — no new items';
     syncing = false;
-    draw();
+
+    // Reload items
+    await loadItems();
+
+    // Clear status after 5s
+    setTimeout(() => {
+      syncStatus = '';
+      draw();
+    }, 5000);
   }
 
   function filtered() {
@@ -107,13 +149,22 @@ export function render(container, _context) {
           }, syncing ? 'Syncing...' : 'Sync All'),
         ]),
       ]),
+      // Sync status / errors
+      syncStatus
+        ? h('div', { class: 'px-3 py-2 text-xs', style: { borderBottom: '1px solid var(--border)', color: syncing ? 'var(--accent)' : 'var(--success)' } }, syncStatus)
+        : null,
+      syncErrors.length > 0
+        ? h('div', { class: 'px-3 py-2', style: { borderBottom: '1px solid var(--border)', background: 'rgba(239,68,68,0.05)' } },
+            syncErrors.map(e => h('div', { class: 'text-xs', style: { color: 'var(--error)', marginBottom: '2px' } }, e))
+          )
+        : null,
       // List
       h('div', { style: { flex: '1', overflowY: 'auto' } },
         loading
           ? h('div', { class: 'p-4 text-sm text-muted' }, 'Loading...')
           : view.length === 0
             ? h('div', { class: 'p-4 text-sm text-muted', style: { textAlign: 'center' } },
-                'No items yet. Connect accounts and click "Sync All" to populate.')
+                'No items yet. Click "Sync All" to pull data from your connected services.')
             : view.map(renderItem)
       ),
     ]);
@@ -147,20 +198,13 @@ export function render(container, _context) {
         item.body ? h('div', { class: 'text-xs text-secondary truncate' }, item.body.slice(0, 150)) : null,
         h('div', { class: 'triage-meta' }, [
           h('span', {}, relativeTime(item.source_timestamp)),
-          item.metadata?.status ? h('span', {}, `• ${item.metadata.status}`) : null,
+          item.metadata?.status ? h('span', {}, `· ${item.metadata.status}`) : null,
         ]),
       ]),
     ]);
   }
 
-  // Listen for sync completion to auto-refresh
   const unsub = bus.on('sync:complete', () => loadItems());
 
-  (async () => {
-    await loadAccounts();
-    await loadItems();
-  })();
-
-  // Cleanup on module replacement
-  container._cleanup = () => unsub();
+  loadItems();
 }

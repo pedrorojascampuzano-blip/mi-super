@@ -17,10 +17,12 @@ export async function requireAuth(req, res, next) {
     req.user = data.user;
     req.token = token;
 
-    // Fire-and-forget: seed env credentials for this user on first auth
-    seedAccountsForUser(data.user).catch(err =>
-      console.warn('[bootstrap] seed error:', err.message)
-    );
+    // Await bootstrap so first request always has accounts ready
+    try {
+      await seedAccountsForUser(data.user);
+    } catch (err) {
+      console.warn('[bootstrap] seed error:', err.message);
+    }
 
     next();
   } catch (err) {
