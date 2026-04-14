@@ -26,10 +26,12 @@ function mapStatusToColumn(status) {
 
   // In Progress
   if (s.includes('progress') || s.includes('doing') || s.includes('review') ||
-      s.includes('started') || s === 'wip' || s === 'active') return 'In Progress';
+      s.includes('started') || s === 'wip' || s === 'active' ||
+      s === 'waiting' || s.includes('blocked')) return 'In Progress';
 
-  // Todo
-  if (s === 'todo' || s.includes('to do') || s === 'open' || s === 'ready' ||
+  // Todo — includes Notion's "To-do today" (active today work)
+  if (s === 'todo' || s.includes('to do') || s === 'to-do today' ||
+      s.includes('today') || s === 'open' || s === 'ready' ||
       s === 'pending' || s === 'new') return 'Todo';
 
   // Backlog (explicit)

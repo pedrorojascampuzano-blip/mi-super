@@ -2,14 +2,22 @@
 const BASE = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
 
-// Database type → item_type mapping
+// Database type → item_type mapping.
+// Note: `contacts` resolves dynamically (Contact vs Organization) via the page's `Type` select.
 const DB_TYPES = {
   tasks: 'task',
   projects: 'project',
   contacts: 'contact',
-  organizations: 'organization',
   resources: 'resource',
 };
+
+// For the combined Contacts/Organizations DB, split by the `Type` select property.
+function resolveContactItemType(page) {
+  const typeProp = Object.entries(page.properties || {})
+    .find(([name]) => name.toLowerCase() === 'type');
+  const value = typeProp ? extractProperty(typeProp[1]) : null;
+  return value === 'Organization' ? 'organization' : 'contact';
+}
 
 async function notionFetch(credentials, path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -178,7 +186,8 @@ export default {
       try {
         const pages = await queryDatabase(credentials, dbId, lastSyncAt);
         for (const page of pages) {
-          items.push(normalizePage(page, itemType, dbKey));
+          const resolvedType = dbKey === 'contacts' ? resolveContactItemType(page) : itemType;
+          items.push(normalizePage(page, resolvedType, dbKey));
         }
       } catch (err) {
         errors.push(`notion ${dbKey}: ${err.message}`);

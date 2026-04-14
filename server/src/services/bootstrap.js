@@ -12,8 +12,8 @@ import { encrypt, decrypt } from '../lib/crypto.js';
 
 const bootstrapped = new Set();
 
-function envLabel(provider) {
-  return `${provider} (env)`;
+function envLabel(provider, sublabel) {
+  return sublabel ? `${sublabel} (env)` : `${provider} (env)`;
 }
 
 function shapesEqual(a, b) {
@@ -22,6 +22,21 @@ function shapesEqual(a, b) {
   } catch {
     return false;
   }
+}
+
+// Normalize a provider's bootstrap config into an array of {label, credentials}.
+// - Single object → one entry with default label.
+// - Array → each entry becomes a separate account; its `label` (minus) field becomes the sublabel,
+//   and the `label` field is stripped from the stored credentials.
+function normalizeEntries(provider, cfg) {
+  if (!cfg) return [];
+  if (Array.isArray(cfg)) {
+    return cfg.map((entry) => {
+      const { label, ...creds } = entry;
+      return { label: envLabel(provider, label), credentials: creds };
+    });
+  }
+  return [{ label: envLabel(provider), credentials: cfg }];
 }
 
 export async function seedAccountsForUser(user) {
@@ -49,56 +64,62 @@ export async function seedAccountsForUser(user) {
   let inserted = 0;
   let updated = 0;
 
-  for (const [provider, credentials] of Object.entries(config.bootstrapCredentials || {})) {
-    if (!credentials) continue;
+  for (const [provider, cfg] of Object.entries(config.bootstrapCredentials || {})) {
+    const entries = normalizeEntries(provider, cfg);
+    if (entries.length === 0) continue;
 
     const rows = existingByProvider.get(provider) || [];
-    const envRow = rows.find(r => r.label === envLabel(provider));
-    const nonEnvRows = rows.filter(r => r.label !== envLabel(provider));
+    const envLabels = new Set(entries.map((e) => e.label));
+    const nonEnvRows = rows.filter((r) => !r.label.endsWith(' (env)'));
 
-    // If user has a manual (non-env) account for this provider, skip
-    if (nonEnvRows.length > 0 && !envRow) continue;
+    // If the user has any manual (non-env) account for this provider and no env-labeled rows
+    // yet exist, skip seeding (don't override user's manual setup).
+    const hasEnvRows = rows.some((r) => envLabels.has(r.label));
+    if (nonEnvRows.length > 0 && !hasEnvRows) continue;
 
-    if (!envRow) {
-      // Insert new env-seeded account
-      const { encrypted, iv, tag } = encrypt(credentials);
-      const { error } = await sb.from('accounts').insert({
-        user_id: user.id,
-        provider,
-        label: envLabel(provider),
-        credentials_encrypted: encrypted,
-        credentials_iv: iv,
-        credentials_tag: tag,
-        status: 'connected',
-      });
-      if (error) console.warn(`[bootstrap] insert ${provider}: ${error.message}`);
-      else inserted++;
-      continue;
-    }
+    for (const { label, credentials } of entries) {
+      const envRow = rows.find((r) => r.label === label);
 
-    // Env row exists — check if credentials shape changed
-    try {
-      const currentCreds = decrypt(
-        envRow.credentials_encrypted,
-        envRow.credentials_iv,
-        envRow.credentials_tag
-      );
-      if (!shapesEqual(currentCreds, credentials)) {
+      if (!envRow) {
         const { encrypted, iv, tag } = encrypt(credentials);
-        const { error } = await sb.from('accounts')
-          .update({
-            credentials_encrypted: encrypted,
-            credentials_iv: iv,
-            credentials_tag: tag,
-            status: 'connected',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', envRow.id);
-        if (error) console.warn(`[bootstrap] update ${provider}: ${error.message}`);
-        else updated++;
+        const { error } = await sb.from('accounts').insert({
+          user_id: user.id,
+          provider,
+          label,
+          credentials_encrypted: encrypted,
+          credentials_iv: iv,
+          credentials_tag: tag,
+          status: 'connected',
+        });
+        if (error) console.warn(`[bootstrap] insert ${provider}/${label}: ${error.message}`);
+        else inserted++;
+        continue;
       }
-    } catch (err) {
-      console.warn(`[bootstrap] decrypt failed for ${provider}: ${err.message}`);
+
+      // Env row exists — check if credentials shape changed
+      try {
+        const currentCreds = decrypt(
+          envRow.credentials_encrypted,
+          envRow.credentials_iv,
+          envRow.credentials_tag
+        );
+        if (!shapesEqual(currentCreds, credentials)) {
+          const { encrypted, iv, tag } = encrypt(credentials);
+          const { error } = await sb.from('accounts')
+            .update({
+              credentials_encrypted: encrypted,
+              credentials_iv: iv,
+              credentials_tag: tag,
+              status: 'connected',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', envRow.id);
+          if (error) console.warn(`[bootstrap] update ${provider}/${label}: ${error.message}`);
+          else updated++;
+        }
+      } catch (err) {
+        console.warn(`[bootstrap] decrypt failed for ${provider}/${label}: ${err.message}`);
+      }
     }
   }
 

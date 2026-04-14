@@ -35,18 +35,21 @@ export const config = {
     slack: process.env.SLACK_BOT_TOKEN
       ? { bot_token: process.env.SLACK_BOT_TOKEN }
       : null,
-    notion: process.env.NOTION_API_KEY
-      ? {
-          api_key: process.env.NOTION_API_KEY,
-          databases: {
-            tasks: process.env.NOTION_DB_TASKS || null,
-            projects: process.env.NOTION_DB_PROJECTS || null,
-            contacts: process.env.NOTION_DB_CONTACTS || null,
-            organizations: process.env.NOTION_DB_ORGANIZATIONS || null,
-            resources: process.env.NOTION_DB_RESOURCES || null,
-          },
-        }
-      : null,
+    // Notion: supports multiple integration tokens as separate accounts.
+    // Contacts and Organizations share one DB (discriminated by `Type` select property).
+    notion: (() => {
+      const databases = {
+        tasks: process.env.NOTION_DB_TASKS || null,
+        projects: process.env.NOTION_DB_PROJECTS || null,
+        contacts: process.env.NOTION_DB_CONTACTS || null,
+        resources: process.env.NOTION_DB_RESOURCES || null,
+      };
+      const entries = [
+        { label: 'notion-1', api_key: process.env.NOTION_API_KEY, databases },
+        { label: 'notion-2', api_key: process.env.NOTION_API_KEY_2, databases },
+      ].filter((e) => e.api_key);
+      return entries.length > 0 ? entries : null;
+    })(),
     linear: process.env.LINEAR_API_KEY
       ? { api_key: process.env.LINEAR_API_KEY }
       : null,
