@@ -15,9 +15,11 @@
 
     <title>Mi Súper</title>
     
+    <script src="config.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
@@ -96,11 +98,207 @@
             const [undoSnapshot, setUndoSnapshot] = useState(null);
             const undoTimerRef = useRef(null);
             const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded_v1') === '1');
+            const [obStep, setObStep] = useState('welcome');
+            const [obName, setObName] = useState('');
+            const [obNick, setObNick] = useState('');
+            const [obCode, setObCode] = useState('');
+            const [obError, setObError] = useState(null);
+            const [obLoading, setObLoading] = useState(false);
+            const [obShareCode, setObShareCode] = useState(null);
+            const [obShareName, setObShareName] = useState(null);
 
-            useEffect(()=>localStorage.setItem('data_v4', JSON.stringify(items)),[items]);
-            useEffect(()=>localStorage.setItem('saved_tags', JSON.stringify(savedTags)),[savedTags]);
-            useEffect(()=>localStorage.setItem('gem_key', key),[key]);
-            useEffect(()=>localStorage.setItem('ds_key', dsKey),[dsKey]);
+            // ─── Cloud sync state ───
+            const cloudConfigured = !!(window.SUPABASE_URL && window.SUPABASE_ANON_KEY && window.supabase);
+            const [groupId, setGroupId] = useState(() => localStorage.getItem('cloud_group_id') || null);
+            const [groupCode, setGroupCode] = useState(() => localStorage.getItem('cloud_group_code') || null);
+            const [groupName, setGroupName] = useState(() => localStorage.getItem('cloud_group_name') || null);
+            const [nickname, setNickname] = useState(() => localStorage.getItem('cloud_nickname') || '');
+            const [members, setMembers] = useState([]);
+            const [syncStatus, setSyncStatus] = useState('offline'); // 'offline' | 'connecting' | 'online' | 'error'
+            const cloudMode = cloudConfigured && !!groupId;
+            const sbRef = useRef(null);
+            const lastSyncedRef = useRef(items);
+            const remoteApplyRef = useRef(false);
+            const channelRef = useRef(null);
+
+            useEffect(() => {
+                if (cloudConfigured && !sbRef.current) {
+                    sbRef.current = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+                }
+                if (sbRef.current) {
+                    sbRef.current.auth.getSession().then(({ data }) => {
+                        if (!data.session) sbRef.current.auth.signInAnonymously();
+                    });
+                }
+            }, []);
+
+            useEffect(() => { localStorage.setItem('data_v4', JSON.stringify(items)); }, [items]);
+            useEffect(() => { localStorage.setItem('saved_tags', JSON.stringify(savedTags)); }, [savedTags]);
+            useEffect(() => { localStorage.setItem('gem_key', key); }, [key]);
+            useEffect(() => { localStorage.setItem('ds_key', dsKey); }, [dsKey]);
+            useEffect(() => { groupId ? localStorage.setItem('cloud_group_id', groupId) : localStorage.removeItem('cloud_group_id'); }, [groupId]);
+            useEffect(() => { groupCode ? localStorage.setItem('cloud_group_code', groupCode) : localStorage.removeItem('cloud_group_code'); }, [groupCode]);
+            useEffect(() => { groupName ? localStorage.setItem('cloud_group_name', groupName) : localStorage.removeItem('cloud_group_name'); }, [groupName]);
+            useEffect(() => { nickname ? localStorage.setItem('cloud_nickname', nickname) : localStorage.removeItem('cloud_nickname'); }, [nickname]);
+
+            // ─── Cloud: initial fetch + realtime subscription ───
+            useEffect(() => {
+                if (!cloudMode || !sbRef.current) return;
+                const sb = sbRef.current;
+                let alive = true;
+                setSyncStatus('connecting');
+
+                const itemFromRow = (r) => ({
+                    id: r.id, name: r.name, places: r.places || ['General'], category: r.category || 'Otros',
+                    status: r.status, isEssential: !!r.is_essential, lastBought: r.last_bought,
+                    qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || ''
+                });
+
+                const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+                (async () => {
+                    const [{ data: rows, error: e1 }, { data: tagRows }, { data: memberRows }] = await Promise.all([
+                        sb.from('items').select('*').eq('group_id', groupId),
+                        sb.from('saved_tags').select('tag').eq('group_id', groupId),
+                        sb.from('group_members').select('member_id, nickname').eq('group_id', groupId),
+                    ]);
+                    if (!alive) return;
+                    if (e1) { setSyncStatus('error'); return; }
+                    const fetched = (rows || []).map(itemFromRow);
+                    const cloudIds = new Set(fetched.map(i => i.id));
+                    // Migrate local-only items into the group: keep them, regenerate non-UUID ids
+                    const localOnly = items.filter(i => !cloudIds.has(i.id)).map(i => isUuid(i.id) ? i : { ...i, id: newId() });
+                    const merged = [...fetched, ...localOnly];
+                    lastSyncedRef.current = fetched; // localOnly will be detected by diff and pushed
+                    if (localOnly.length === 0) remoteApplyRef.current = true;
+                    setItems(merged);
+                    if (tagRows && tagRows.length) setSavedTags(prev => Array.from(new Set(['General', ...prev, ...tagRows.map(t => t.tag)])));
+                    setMembers(memberRows || []);
+                    setSyncStatus('online');
+                })();
+
+                channelRef.current = sb.channel(`group:${groupId}`)
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'items', filter: `group_id=eq.${groupId}` }, async () => {
+                        const { data } = await sb.from('items').select('*').eq('group_id', groupId);
+                        if (!alive || !data) return;
+                        const fetched = data.map(itemFromRow);
+                        remoteApplyRef.current = true;
+                        lastSyncedRef.current = fetched;
+                        setItems(fetched);
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members', filter: `group_id=eq.${groupId}` }, async () => {
+                        const { data } = await sb.from('group_members').select('member_id, nickname').eq('group_id', groupId);
+                        if (alive && data) setMembers(data);
+                    })
+                    .subscribe();
+
+                return () => {
+                    alive = false;
+                    if (channelRef.current) { sb.removeChannel(channelRef.current); channelRef.current = null; }
+                };
+            }, [cloudMode, groupId]);
+
+            // ─── Cloud: diff items vs last synced and push changes ───
+            useEffect(() => {
+                if (!cloudMode || !sbRef.current) return;
+                if (remoteApplyRef.current) { remoteApplyRef.current = false; return; }
+                const sb = sbRef.current;
+                const prev = lastSyncedRef.current;
+                const prevMap = new Map(prev.map(i => [i.id, i]));
+                const nextMap = new Map(items.map(i => [i.id, i]));
+                const toUpsert = [];
+                const toDelete = [];
+                for (const [id, it] of nextMap) {
+                    const p = prevMap.get(id);
+                    if (!p || JSON.stringify(p) !== JSON.stringify(it)) toUpsert.push(it);
+                }
+                for (const id of prevMap.keys()) if (!nextMap.has(id)) toDelete.push(id);
+                if (toUpsert.length === 0 && toDelete.length === 0) return;
+
+                (async () => {
+                    try {
+                        if (toUpsert.length) {
+                            const rows = toUpsert.map(i => ({
+                                id: i.id, group_id: groupId, name: i.name, places: i.places,
+                                category: i.category, status: i.status, is_essential: !!i.isEssential,
+                                last_bought: i.lastBought || null, qty: i.qty || '',
+                                price: i.price === '' || i.price == null ? null : Number(i.price),
+                                expiry: i.expiry || null
+                            }));
+                            const { error } = await sb.from('items').upsert(rows);
+                            if (error) throw error;
+                        }
+                        if (toDelete.length) {
+                            const { error } = await sb.from('items').delete().in('id', toDelete);
+                            if (error) throw error;
+                        }
+                        lastSyncedRef.current = items;
+                        setSyncStatus('online');
+                    } catch (e) {
+                        console.error('sync failed', e);
+                        setSyncStatus('error');
+                    }
+                })();
+            }, [items, cloudMode, groupId]);
+
+            // Re-attempt sync when network returns
+            useEffect(() => {
+                if (!cloudMode) return;
+                const onOnline = () => { setSyncStatus('connecting'); lastSyncedRef.current = []; setItems(prev => [...prev]); };
+                window.addEventListener('online', onOnline);
+                return () => window.removeEventListener('online', onOnline);
+            }, [cloudMode]);
+
+            // ─── Cloud: group operations ───
+            const cloudCreateGroup = async (gName, gNick) => {
+                const sb = sbRef.current; if (!sb) return { error: 'Supabase no inicializado' };
+                await sb.auth.getSession().then(({ data }) => { if (!data.session) return sb.auth.signInAnonymously(); });
+                const { data, error } = await sb.rpc('create_group', { p_name: gName, p_nickname: gNick });
+                if (error) return { error: error.message };
+                const row = Array.isArray(data) ? data[0] : data;
+                setGroupName(gName); setNickname(gNick);
+                setGroupId(row.group_id); setGroupCode(row.code);
+                return { code: row.code };
+            };
+
+            const cloudJoinGroup = async (code, gNick) => {
+                const sb = sbRef.current; if (!sb) return { error: 'Supabase no inicializado' };
+                await sb.auth.getSession().then(({ data }) => { if (!data.session) return sb.auth.signInAnonymously(); });
+                const { data, error } = await sb.rpc('join_group', { p_code: code.trim().toUpperCase(), p_nickname: gNick });
+                if (error) return { error: error.message };
+                const { data: g } = await sb.from('groups').select('name').eq('id', data).single();
+                setGroupName(g?.name || 'Grupo'); setGroupCode(code.trim().toUpperCase()); setNickname(gNick);
+                setGroupId(data);
+                return { ok: true };
+            };
+
+            const cloudLeaveGroup = () => {
+                if (channelRef.current && sbRef.current) { sbRef.current.removeChannel(channelRef.current); channelRef.current = null; }
+                setGroupId(null); setGroupCode(null); setGroupName(null);
+                setMembers([]); setSyncStatus('offline');
+                lastSyncedRef.current = [];
+            };
+
+            const cloudUploadLocal = async () => {
+                const sb = sbRef.current; if (!sb || !groupId) return;
+                const localItems = items;
+                if (!localItems.length) return;
+                const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+                const normalized = localItems.map(i => isUuid(i.id) ? i : { ...i, id: newId() });
+                const rows = normalized.map(i => ({
+                    id: i.id, group_id: groupId, name: i.name, places: i.places,
+                    category: i.category, status: i.status, is_essential: !!i.isEssential,
+                    last_bought: i.lastBought || null, qty: i.qty || '',
+                    price: i.price === '' || i.price == null ? null : Number(i.price),
+                    expiry: i.expiry || null
+                }));
+                const { error } = await sb.from('items').upsert(rows);
+                if (!error) {
+                    setItems(normalized);
+                    lastSyncedRef.current = normalized;
+                }
+                return { error: error?.message };
+            };
 
             const handleSmartDelete = (item) => {
                 if (item.status === 'stocked') {
@@ -412,7 +610,15 @@
                 <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] bg-white sm:rounded-[30px] shadow-2xl flex flex-col relative overflow-hidden text-gray-800">
                     <div className="bg-indigo-600 px-5 pb-4 ios-header text-white rounded-b-[24px] shadow-lg shrink-0 z-10">
                         <div className="flex justify-between items-center mb-4 mt-2">
-                            <h1 className="text-xl font-bold flex items-center gap-2"><Icon name="ShoppingBag"/> Mi Súper</h1>
+                            <div className="flex flex-col">
+                                <h1 className="text-xl font-bold flex items-center gap-2"><Icon name="ShoppingBag"/> Mi Súper</h1>
+                                {cloudMode && (
+                                    <p className="text-[10px] text-indigo-200 mt-0.5 flex items-center gap-1">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${syncStatus === 'online' ? 'bg-green-400' : syncStatus === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'}`}></span>
+                                        {groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}
+                                    </p>
+                                )}
+                            </div>
                             <div className="flex gap-2">
                                 <label className="p-2 bg-white/20 rounded-full hover:bg-white/30 cursor-pointer"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
                                 <button onClick={()=>{setModal('dictate'); setResult(null)}} className="p-2 bg-white/20 rounded-full"><Icon name="Mic"/></button>
@@ -562,6 +768,43 @@
 
                                 {modal === 'settings' && (
                                     <div className="space-y-4">
+                                        {cloudConfigured && cloudMode && (
+                                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <p className="text-xs font-bold text-green-900">Grupo: {groupName}</p>
+                                                    <span className="text-[10px] text-green-700">{members.length || 1} miembros</span>
+                                                </div>
+                                                <p className="text-[10px] text-green-700 mb-2">Código: <span className="font-mono font-bold tracking-wider">{groupCode}</span></p>
+                                                <div className="flex gap-2">
+                                                    <button onClick={async ()=>{
+                                                        const text = `Únete a "${groupName}" en Mi Súper con el código ${groupCode}\n${location.origin}${location.pathname}`;
+                                                        try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); alert('Copiado'); } } catch {}
+                                                    }} className="flex-1 bg-white border border-green-300 text-green-700 py-1.5 rounded text-xs font-bold">Compartir código</button>
+                                                    <button onClick={()=>{
+                                                        setConfirmData({
+                                                            isOpen: true, msg: `¿Salir de "${groupName}"? Tus listas locales no se borran.`, actionText: "Salir",
+                                                            action: () => { cloudLeaveGroup(); setConfirmData({isOpen:false}); setModal(null); },
+                                                            altAction: () => setConfirmData({isOpen:false}), altText: "Cancelar"
+                                                        });
+                                                    }} className="flex-1 bg-white border border-red-300 text-red-700 py-1.5 rounded text-xs font-bold">Salir</button>
+                                                </div>
+                                                {items.length > 0 && (
+                                                    <button onClick={async ()=>{
+                                                        const r = await cloudUploadLocal();
+                                                        alert(r?.error ? `Error: ${r.error}` : 'Inventario subido al grupo');
+                                                    }} className="w-full mt-2 bg-indigo-600 text-white py-1.5 rounded text-xs font-bold">Subir mi inventario actual al grupo</button>
+                                                )}
+                                            </div>
+                                        )}
+                                        {cloudConfigured && !cloudMode && (
+                                            <div className="bg-gray-50 border rounded-lg p-3">
+                                                <p className="text-xs font-bold text-gray-700 mb-2">Modo: solo este dispositivo</p>
+                                                <div className="flex gap-2">
+                                                    <button onClick={()=>{ setObStep('create'); setObError(null); setObName(''); setObNick(''); setOnboarded(false); setModal(null); }} className="flex-1 bg-indigo-600 text-white py-1.5 rounded text-xs font-bold">Crear grupo</button>
+                                                    <button onClick={()=>{ setObStep('join'); setObError(null); setObCode(''); setObNick(''); setOnboarded(false); setModal(null); }} className="flex-1 bg-white border-2 border-indigo-600 text-indigo-600 py-1.5 rounded text-xs font-bold">Unirme</button>
+                                                </div>
+                                            </div>
+                                        )}
                                         <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-xs text-indigo-900">
                                             <p className="font-bold mb-1">Tus datos viven en tu navegador.</p>
                                             <p>Las API keys se guardan localmente y solo se envían a Google/DeepSeek cuando usas voz, tickets o chef.</p>
@@ -606,21 +849,85 @@
                     {!onboarded && (
                         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
                             <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-enter">
-                                <div className="text-center mb-4">
-                                    <div className="inline-flex p-3 bg-indigo-100 rounded-2xl mb-3"><Icon name="ShoppingBag" size={32} className="text-indigo-600"/></div>
-                                    <h2 className="text-xl font-bold">Bienvenido a Mi Súper</h2>
-                                    <p className="text-sm text-gray-500 mt-1">Tu lista inteligente del super.</p>
-                                </div>
-                                <ul className="space-y-2 text-sm text-gray-600 mb-4">
-                                    <li className="flex gap-2"><span className="text-indigo-600">✓</span> Lista, casa e historial en un tap</li>
-                                    <li className="flex gap-2"><span className="text-indigo-600">✓</span> Voz, tickets y chef con AI (opcional)</li>
-                                    <li className="flex gap-2"><span className="text-indigo-600">✓</span> Funciona offline en el super</li>
-                                </ul>
-                                <p className="text-[11px] text-gray-500 bg-gray-50 border rounded-lg p-3 mb-4">
-                                    Tus datos viven en tu navegador. Para voz/tickets necesitas una API key gratis de <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">Google Gemini</a>.
-                                </p>
-                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); setModal('settings'); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Configurar API Key</button>
-                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Empezar sin AI</button>
+                                {obStep === 'welcome' && (<>
+                                    <div className="text-center mb-4">
+                                        <div className="inline-flex p-3 bg-indigo-100 rounded-2xl mb-3"><Icon name="ShoppingBag" size={32} className="text-indigo-600"/></div>
+                                        <h2 className="text-xl font-bold">Bienvenido a Mi Súper</h2>
+                                        <p className="text-sm text-gray-500 mt-1">Tu lista inteligente del super.</p>
+                                    </div>
+                                    <ul className="space-y-2 text-sm text-gray-600 mb-4">
+                                        <li className="flex gap-2"><span className="text-indigo-600">✓</span> Lista, casa e historial en un tap</li>
+                                        <li className="flex gap-2"><span className="text-indigo-600">✓</span> Voz, tickets y chef con AI (opcional)</li>
+                                        <li className="flex gap-2"><span className="text-indigo-600">✓</span> Funciona offline en el super</li>
+                                        {cloudConfigured && <li className="flex gap-2"><span className="text-indigo-600">✓</span> Compartir lista con amigos en tiempo real</li>}
+                                    </ul>
+                                    {cloudConfigured ? (<>
+                                        <button onClick={()=>{ setObStep('create'); setObError(null); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Crear grupo nuevo</button>
+                                        <button onClick={()=>{ setObStep('join'); setObError(null); }} className="w-full bg-white border-2 border-indigo-600 text-indigo-600 py-3 rounded-xl font-bold mb-2">Unirme con código</button>
+                                        <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Solo este dispositivo</button>
+                                    </>) : (<>
+                                        <p className="text-[11px] text-gray-500 bg-gray-50 border rounded-lg p-3 mb-4">
+                                            Tus datos viven en tu navegador. Para voz/tickets necesitas una API key gratis de <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">Google Gemini</a>.
+                                        </p>
+                                        <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); setModal('settings'); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Configurar API Key</button>
+                                        <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Empezar sin AI</button>
+                                    </>)}
+                                </>)}
+
+                                {obStep === 'create' && (<>
+                                    <h2 className="text-xl font-bold mb-1">Crear grupo</h2>
+                                    <p className="text-sm text-gray-500 mb-4">Tú serás el primer miembro. Comparte el código con tus amigos para que se unan.</p>
+                                    <label className="text-xs font-bold text-gray-700 block mb-1">Nombre del grupo</label>
+                                    <input value={obName} onChange={e=>setObName(e.target.value)} placeholder="Familia, Roomies, etc." className="w-full border p-2 rounded-lg mb-3"/>
+                                    <label className="text-xs font-bold text-gray-700 block mb-1">Tu nombre en el grupo</label>
+                                    <input value={obNick} onChange={e=>setObNick(e.target.value)} placeholder="Pedro" className="w-full border p-2 rounded-lg mb-3"/>
+                                    {obError && <p className="text-xs text-red-600 mb-2">{obError}</p>}
+                                    <button disabled={!obName.trim() || !obNick.trim() || obLoading} onClick={async ()=>{
+                                        setObLoading(true); setObError(null);
+                                        const r = await cloudCreateGroup(obName.trim(), obNick.trim());
+                                        setObLoading(false);
+                                        if (r.error) { setObError(r.error); return; }
+                                        setObShareCode(r.code); setObShareName(obName.trim()); setObStep('success');
+                                    }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2 disabled:opacity-50">{obLoading ? 'Creando...' : 'Crear grupo'}</button>
+                                    <button onClick={()=>setObStep('welcome')} className="w-full text-gray-500 text-sm py-2">Volver</button>
+                                </>)}
+
+                                {obStep === 'join' && (<>
+                                    <h2 className="text-xl font-bold mb-1">Unirme con código</h2>
+                                    <p className="text-sm text-gray-500 mb-4">Pega el código de 8 letras que te compartieron.</p>
+                                    <label className="text-xs font-bold text-gray-700 block mb-1">Código del grupo</label>
+                                    <input value={obCode} onChange={e=>setObCode(e.target.value.toUpperCase())} placeholder="AB23PQ12" maxLength={8} className="w-full border p-2 rounded-lg mb-3 font-mono uppercase tracking-widest"/>
+                                    <label className="text-xs font-bold text-gray-700 block mb-1">Tu nombre en el grupo</label>
+                                    <input value={obNick} onChange={e=>setObNick(e.target.value)} placeholder="Steph" className="w-full border p-2 rounded-lg mb-3"/>
+                                    {obError && <p className="text-xs text-red-600 mb-2">{obError}</p>}
+                                    <button disabled={obCode.trim().length < 4 || !obNick.trim() || obLoading} onClick={async ()=>{
+                                        setObLoading(true); setObError(null);
+                                        const r = await cloudJoinGroup(obCode, obNick.trim());
+                                        setObLoading(false);
+                                        if (r.error) { setObError(r.error === 'group not found' ? 'No encontré ese grupo. Revisa el código.' : r.error); return; }
+                                        localStorage.setItem('onboarded_v1','1'); setOnboarded(true);
+                                    }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2 disabled:opacity-50">{obLoading ? 'Uniéndome...' : 'Unirme'}</button>
+                                    <button onClick={()=>setObStep('welcome')} className="w-full text-gray-500 text-sm py-2">Volver</button>
+                                </>)}
+
+                                {obStep === 'success' && (<>
+                                    <div className="text-center mb-4">
+                                        <div className="inline-flex p-3 bg-green-100 rounded-2xl mb-3"><Icon name="Check" size={32} className="text-green-600"/></div>
+                                        <h2 className="text-xl font-bold">{obShareName} listo</h2>
+                                        <p className="text-sm text-gray-500 mt-1">Comparte este código con tus amigos:</p>
+                                    </div>
+                                    <div className="bg-indigo-50 border-2 border-dashed border-indigo-300 rounded-xl p-4 mb-4 text-center">
+                                        <p className="font-mono text-2xl font-bold tracking-widest text-indigo-700">{obShareCode}</p>
+                                    </div>
+                                    <button onClick={async ()=>{
+                                        const text = `Únete a "${obShareName}" en Mi Súper con el código ${obShareCode}\n${location.origin}${location.pathname}`;
+                                        try {
+                                            if (navigator.share) await navigator.share({ text });
+                                            else { await navigator.clipboard.writeText(text); alert('Copiado al portapapeles'); }
+                                        } catch {}
+                                    }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Compartir código</button>
+                                    <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-700 py-2 rounded-xl text-sm font-bold">Empezar</button>
+                                </>)}
                             </div>
                         </div>
                     )}

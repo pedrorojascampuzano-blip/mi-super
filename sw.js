@@ -1,8 +1,9 @@
-const CACHE = 'mi-super-v1';
+const CACHE = 'mi-super-v2';
 const PRECACHE = [
   './',
   './index.html',
   './manifest.json',
+  './config.js',
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png'
@@ -27,9 +28,10 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-  // Never cache live AI calls
+  // Never cache live API calls
   if (url.hostname === 'generativelanguage.googleapis.com') return;
   if (url.hostname === 'api.deepseek.com') return;
+  if (url.hostname.endsWith('.supabase.co')) return;
 
   event.respondWith(
     caches.match(req).then((cached) => {

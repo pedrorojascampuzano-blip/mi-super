@@ -30,9 +30,24 @@ También puedes usar DeepSeek (solo para texto) desde [platform.deepseek.com/api
 - Marcar esenciales: cuando se acaban, regresan automáticamente a la lista
 - Exportar/importar CSV para respaldo
 
+## Lista compartida con amigos (opcional)
+
+Si la persona que te compartió la app activó modo grupo, vas a ver al inicio:
+- **Crear grupo nuevo** → genera un código (ej. `AB23PQ12`) que compartes con tus amigos.
+- **Unirme con código** → pega el código que te pasaron y entras al grupo.
+- **Solo este dispositivo** → la app funciona en local (modo por defecto).
+
+En modo grupo, todos ven y editan la misma lista en tiempo real desde sus celulares y compus. Puedes cambiar de modo desde el engrane.
+
+Para activar modo grupo en tu propia copia de la app, ver [SETUP.md](SETUP.md).
+
 ## Privacidad
 
-Todo vive en tu navegador. Tus listas, tus keys, tu historial: nada se envía a un servidor. Las API keys solo se usan al llamar a Google/DeepSeek (cuando usas voz, tickets o chef).
+En modo solo-local: todo vive en tu navegador. Nada sale de tu dispositivo.
+
+En modo grupo: tus items se sincronizan a Supabase (Postgres). Solo los miembros de tu grupo (verificados con tu código) pueden leer o escribir. La app no usa identificadores personales: cada dispositivo es anónimo.
+
+Las API keys de Gemini/DeepSeek se guardan localmente y solo se envían a Google/DeepSeek cuando usas voz, tickets o chef.
 
 ## Tech
 
