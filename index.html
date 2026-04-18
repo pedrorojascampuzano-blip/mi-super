@@ -95,6 +95,7 @@
             const todayISO = () => new Date().toISOString().slice(0, 10);
             const [undoSnapshot, setUndoSnapshot] = useState(null);
             const undoTimerRef = useRef(null);
+            const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded_v1') === '1');
 
             useEffect(()=>localStorage.setItem('data_v4', JSON.stringify(items)),[items]);
             useEffect(()=>localStorage.setItem('saved_tags', JSON.stringify(savedTags)),[savedTags]);
@@ -561,10 +562,20 @@
 
                                 {modal === 'settings' && (
                                     <div className="space-y-4">
-                                        <p className="text-xs text-gray-500">Google Gemini API Key (Recomendado para todo):</p>
-                                        <input value={key} onChange={e=>setKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="AIza..."/>
-                                        <p className="text-xs text-gray-500">DeepSeek API Key (Opcional, solo texto):</p>
-                                        <input value={dsKey} onChange={e=>setDsKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-..."/>
+                                        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-xs text-indigo-900">
+                                            <p className="font-bold mb-1">Tus datos viven en tu navegador.</p>
+                                            <p>Las API keys se guardan localmente y solo se envían a Google/DeepSeek cuando usas voz, tickets o chef.</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-700 mb-1">Google Gemini API Key</p>
+                                            <p className="text-[10px] text-gray-500 mb-1">Gratis. Obtén la tuya en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">aistudio.google.com</a></p>
+                                            <input value={key} onChange={e=>setKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="AIza..."/>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-700 mb-1">DeepSeek API Key (opcional)</p>
+                                            <p className="text-[10px] text-gray-500 mb-1">Alternativa para texto. <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" className="text-indigo-600 underline">platform.deepseek.com</a></p>
+                                            <input value={dsKey} onChange={e=>setDsKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-..."/>
+                                        </div>
                                         <button onClick={()=>setModal(null)} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold">Guardar</button>
                                     </div>
                                 )}
@@ -588,6 +599,28 @@
                                         )}
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    )}
+
+                    {!onboarded && (
+                        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
+                            <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-enter">
+                                <div className="text-center mb-4">
+                                    <div className="inline-flex p-3 bg-indigo-100 rounded-2xl mb-3"><Icon name="ShoppingBag" size={32} className="text-indigo-600"/></div>
+                                    <h2 className="text-xl font-bold">Bienvenido a Mi Súper</h2>
+                                    <p className="text-sm text-gray-500 mt-1">Tu lista inteligente del super.</p>
+                                </div>
+                                <ul className="space-y-2 text-sm text-gray-600 mb-4">
+                                    <li className="flex gap-2"><span className="text-indigo-600">✓</span> Lista, casa e historial en un tap</li>
+                                    <li className="flex gap-2"><span className="text-indigo-600">✓</span> Voz, tickets y chef con AI (opcional)</li>
+                                    <li className="flex gap-2"><span className="text-indigo-600">✓</span> Funciona offline en el super</li>
+                                </ul>
+                                <p className="text-[11px] text-gray-500 bg-gray-50 border rounded-lg p-3 mb-4">
+                                    Tus datos viven en tu navegador. Para voz/tickets necesitas una API key gratis de <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">Google Gemini</a>.
+                                </p>
+                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); setModal('settings'); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Configurar API Key</button>
+                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Empezar sin AI</button>
                             </div>
                         </div>
                     )}
