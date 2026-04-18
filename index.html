@@ -27,6 +27,9 @@
         .animate-enter { animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .mic-active { animation: pulse 1.5s infinite; background-color: #ef4444 !important; border-color: #ef4444 !important; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        input, textarea, select { font-size: 16px; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .toast-enter { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
     </style>
 </head>
 <body>
@@ -66,8 +69,8 @@
             const [key, setKey] = useState(()=>localStorage.getItem('gem_key')||'');
             const [dsKey, setDsKey] = useState(()=>localStorage.getItem('ds_key')||'');
             const [tab, setTab] = useState('shop'); 
-            const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('data_v4')) || []);
-            const [savedTags, setSavedTags] = useState(() => JSON.parse(localStorage.getItem('saved_tags')) || ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']);
+            const [items, setItems] = useState(() => { try { return JSON.parse(localStorage.getItem('data_v4')) || []; } catch { return []; } });
+            const [savedTags, setSavedTags] = useState(() => { try { return JSON.parse(localStorage.getItem('saved_tags')) || ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']; } catch { return ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']; } });
             const [name, setName] = useState('');
             const [tagInput, setTagInput] = useState('');
             const [selTags, setSelTags] = useState(['General']);
@@ -83,6 +86,11 @@
             const recognitionRef = useRef(null);
 
             const categories = ['Alimentos', 'Medicamentos', 'Limpieza', 'Hogar', 'Mascotas', 'Otros'];
+
+            const newId = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '_' + Math.random().toString(36).slice(2));
+            const todayISO = () => new Date().toISOString().slice(0, 10);
+            const [undoSnapshot, setUndoSnapshot] = useState(null);
+            const undoTimerRef = useRef(null);
 
             useEffect(()=>localStorage.setItem('data_v4', JSON.stringify(items)),[items]);
             useEffect(()=>localStorage.setItem('saved_tags', JSON.stringify(savedTags)),[savedTags]);
@@ -134,9 +142,13 @@
                     isOpen: true,
                     msg: `¿Mover ${count} productos a Casa?`,
                     action: () => {
-                        setItems(prev => prev.map(i => i.status === 'cart' ? { ...i, status: 'stocked', lastBought: new Date().toLocaleDateString('es-MX') } : i));
+                        const snapshot = items;
+                        setItems(prev => prev.map(i => i.status === 'cart' ? { ...i, status: 'stocked', lastBought: todayISO() } : i));
                         setTab('inv');
                         setConfirmData({ isOpen: false });
+                        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+                        setUndoSnapshot({ items: snapshot, label: `${count} productos a Casa` });
+                        undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5000);
                     },
                     actionText: "Finalizar Compra"
                 });
@@ -155,34 +167,53 @@
                 document.body.appendChild(link); link.click(); document.body.removeChild(link);
             };
 
+            const parseCSVLine = (line) => {
+                const out = []; let cur = ''; let q = false;
+                for (let i = 0; i < line.length; i++) {
+                    const ch = line[i];
+                    if (q) {
+                        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+                        else if (ch === '"') { q = false; }
+                        else { cur += ch; }
+                    } else {
+                        if (ch === ',') { out.push(cur); cur = ''; }
+                        else if (ch === '"' && cur === '') { q = true; }
+                        else { cur += ch; }
+                    }
+                }
+                out.push(cur);
+                return out;
+            };
+
             const handleImportCSV = (e) => {
-                const f = e.target.files[0]; if(!f) return;
+                const f = e.target.files[0]; if (!f) return;
                 const r = new FileReader();
                 r.onload = (evt) => {
-                    const l = evt.target.result.split('\n');
-                    const n = l.slice(1).map(line => {
+                    const lines = evt.target.result.split(/\r?\n/);
+                    const validStatuses = ['needed', 'cart', 'stocked', 'inactive'];
+                    const n = lines.slice(1).map(line => {
                         if (!line.trim()) return null;
-                        const c = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-                        if(!c[0]) return null;
-                        const clean = (val) => val ? val.replace(/^"|"$/g, '').replace(/""/g, '"') : '';
-                        return { 
-                            id: Date.now() + Math.random(), 
-                            name: clean(c[1])||'Item', 
-                            places: c[2]?clean(c[2]).split('|'):['General'], 
-                            category: clean(c[3])||'Otros',
-                            status: 'stocked', 
-                            isEssential: clean(c[5]) === 'Si',
-                            lastBought: clean(c[6])||null, 
-                            qty: clean(c[7])||'', 
-                            price: clean(c[8])||'', 
-                            expiry: clean(c[9])||'' 
+                        const c = parseCSVLine(line);
+                        if (!c[1]) return null;
+                        const status = validStatuses.includes(c[4]) ? c[4] : 'stocked';
+                        return {
+                            id: newId(),
+                            name: c[1] || 'Item',
+                            places: c[2] ? c[2].split('|').filter(Boolean) : ['General'],
+                            category: c[3] || 'Otros',
+                            status,
+                            isEssential: c[5] === 'Si',
+                            lastBought: c[6] || null,
+                            qty: c[7] || '',
+                            price: c[8] || '',
+                            expiry: c[9] || ''
                         };
                     }).filter(Boolean);
-                    if(n.length) {
+                    if (n.length) {
                         setConfirmData({
-                            isOpen: true, 
-                            msg: `¿Importar ${n.length} productos?`, 
-                            action: () => { setItems(prev => [...prev, ...n]); setConfirmData({isOpen:false}); },
+                            isOpen: true,
+                            msg: `¿Importar ${n.length} productos?`,
+                            action: () => { setItems(prev => [...prev, ...n]); setConfirmData({ isOpen: false }); },
                             actionText: "Importar"
                         });
                     }
@@ -190,63 +221,61 @@
                 r.readAsText(f); e.target.value = '';
             };
 
-            // --- IA LOGIC (DeepSeek Support) ---
-            const callAI = async (textPrompt, imageData=null) => {
+            // --- IA LOGIC (DeepSeek + Gemini, structured output) ---
+            const callAI = async (textPrompt, imageData = null, wantJson = false) => {
                 setLoading(true); setResult(null);
-                
-                // Prioridad 1: Imagen siempre necesita Gemini (DeepSeek chat no soporta imágenes standard)
+
                 if (imageData) {
                     if (!key) { setLoading(false); setResult("⚠️ Tickets requieren API Key de Gemini."); return null; }
                     try {
+                        const body = { contents: [{ parts: [{ text: textPrompt }, { inline_data: { mime_type: imageData.mime, data: imageData.data } }] }] };
+                        if (wantJson) body.generationConfig = { responseMimeType: "application/json" };
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-                            method: 'POST', headers: {'Content-Type':'application/json'},
-                            body: JSON.stringify({ contents: [{ parts: [{ text: textPrompt }, { inline_data: { mime_type: imageData.mime, data: imageData.data } }] }] })
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
                         });
                         const data = await res.json();
                         setLoading(false);
                         return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                    } catch(e) { setLoading(false); setResult("Error Gemini."); return null; }
+                    } catch (e) { setLoading(false); setResult("Error Gemini."); return null; }
                 }
 
-                // Prioridad 2: Texto. Si hay DeepSeek, usarlo. Si no, Gemini.
                 if (dsKey) {
                     try {
+                        const body = {
+                            model: "deepseek-chat",
+                            messages: [
+                                { role: "system", content: "Eres un asistente de inventario experto. Responde SOLO en JSON." },
+                                { role: "user", content: textPrompt }
+                            ],
+                            stream: false
+                        };
+                        if (wantJson) body.response_format = { type: "json_object" };
                         const res = await fetch("https://api.deepseek.com/chat/completions", {
                             method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                "Authorization": `Bearer ${dsKey}`
-                            },
-                            body: JSON.stringify({
-                                model: "deepseek-chat",
-                                messages: [
-                                    { role: "system", content: "Eres un asistente de inventario experto. Responde SOLO en JSON." },
-                                    { role: "user", content: textPrompt }
-                                ],
-                                stream: false
-                            })
+                            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${dsKey}` },
+                            body: JSON.stringify(body)
                         });
                         const data = await res.json();
+                        if (data.error) throw new Error(data.error.message);
                         setLoading(false);
-                        if(data.error) throw new Error(data.error.message);
                         return data.choices?.[0]?.message?.content || "";
-                    } catch(e) {
+                    } catch (e) {
                         console.error(e);
-                        // Si falla DeepSeek y tenemos Gemini, intentamos fallback
                         if (!key) { setLoading(false); setResult(`Error DeepSeek: ${e.message}`); return null; }
                     }
                 }
 
                 if (key) {
                     try {
+                        const body = { contents: [{ parts: [{ text: textPrompt }] }] };
+                        if (wantJson) body.generationConfig = { responseMimeType: "application/json" };
                         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-                            method: 'POST', headers: {'Content-Type':'application/json'},
-                            body: JSON.stringify({ contents: [{ parts: [{ text: textPrompt }] }] })
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
                         });
                         const data = await res.json();
                         setLoading(false);
                         return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                    } catch(e) { setLoading(false); setResult("Error Gemini."); return null; }
+                    } catch (e) { setLoading(false); setResult("Error Gemini."); return null; }
                 }
 
                 setLoading(false);
@@ -254,23 +283,31 @@
                 return null;
             };
 
-            const cleanJSON = (text) => { const s=text.indexOf('['); const e=text.lastIndexOf(']'); return (s!==-1&&e!==-1)?text.substring(s,e+1):text; };
+            const cleanJSON = (text) => {
+                if (!text) return text;
+                const arr = text.indexOf('['); const obj = text.indexOf('{');
+                let s = -1, e = -1;
+                if (arr !== -1 && (obj === -1 || arr < obj)) { s = arr; e = text.lastIndexOf(']'); }
+                else if (obj !== -1) { s = obj; e = text.lastIndexOf('}'); }
+                return (s !== -1 && e !== -1) ? text.substring(s, e + 1) : text;
+            };
 
             const handleDictation = async () => {
-                if(!prompt.trim()) return;
-                const p = `Analiza: "${prompt}". JSON ARRAY: [{"name":"x","places":["y"],"status":"needed|stocked","qty":"1","expiry":"YYYY-MM-DD","category":"Alimentos|Medicamentos|Limpieza"}]. Si dice "tengo"->"stocked". Si no categoria, adivina. SOLO JSON sin markdown.`;
-                const raw = await callAI(p);
-                if(raw) {
+                if (!prompt.trim()) return;
+                const p = `Analiza: "${prompt}". Devuelve JSON con esta forma exacta: {"items":[{"name":"x","places":["y"],"status":"needed|stocked","qty":"1","expiry":"YYYY-MM-DD","category":"Alimentos|Medicamentos|Limpieza|Hogar|Mascotas|Otros"}]}. Si dice "tengo" usa "stocked". Si no hay categoria, adivina. SOLO JSON, sin markdown.`;
+                const raw = await callAI(p, null, true);
+                if (raw) {
                     try {
-                        const json = JSON.parse(cleanJSON(raw));
-                        const newItems = json.map(i => ({ 
-                            id: Date.now()+Math.random(), name: i.name, places: i.places||['General'], 
-                            status: i.status||'needed', lastBought: i.status==='stocked'?'Hoy':null, 
-                            qty: i.qty||'', price:'', expiry: i.expiry||'', category: i.category||'Otros', isEssential: false
+                        const parsed = JSON.parse(cleanJSON(raw));
+                        const arr = Array.isArray(parsed) ? parsed : (parsed.items || []);
+                        const newItems = arr.map(i => ({
+                            id: newId(), name: i.name, places: i.places || ['General'],
+                            status: i.status || 'needed', lastBought: i.status === 'stocked' ? todayISO() : null,
+                            qty: i.qty || '', price: '', expiry: i.expiry || '', category: i.category || 'Otros', isEssential: false
                         }));
                         setItems(prev => [...prev, ...newItems]);
                         setResult(`✅ ${newItems.length} items agregados.`); setPrompt('');
-                    } catch(e) { setResult("La IA no devolvió un formato válido. Intenta de nuevo."); }
+                    } catch (e) { setResult("La IA no devolvio un formato valido. Intenta de nuevo."); }
                 }
             };
 
@@ -283,27 +320,30 @@
                 reader.onloadend = async () => {
                     const base64Data = reader.result.split(',')[1];
                     const mimeType = file.type;
-                    const promptText = `Analiza ticket. Extrae productos y precios. JSON: [{"name": "Prod", "price": 10.50, "qty": "1"}]. SOLO JSON.`;
-                    const text = await callAI(promptText, { mime: mimeType, data: base64Data });
-                    if(text) {
+                    const promptText = `Analiza ticket de compra. Extrae productos y precios. Devuelve JSON con esta forma exacta: {"items":[{"name":"Prod","price":10.50,"qty":"1"}]}. SOLO JSON.`;
+                    const text = await callAI(promptText, { mime: mimeType, data: base64Data }, true);
+                    if (text) {
                         try {
-                            const ticketItems = JSON.parse(cleanJSON(text));
-                            if (Array.isArray(ticketItems)) {
-                                let newItemsList = [...items];
-                                let added=0; let updated=0;
-                                ticketItems.forEach(tItem => {
-                                    const existingIndex = newItemsList.findIndex(i => i.name.toLowerCase().includes(tItem.name.toLowerCase()));
-                                    if (existingIndex >= 0) {
-                                        newItemsList[existingIndex] = { ...newItemsList[existingIndex], price: tItem.price, lastBought: 'Hoy', status: 'stocked' };
+                            const parsed = JSON.parse(cleanJSON(text));
+                            const ticketItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
+                            if (ticketItems.length === 0) { setResult("Ticket procesado pero no se detectaron productos."); return; }
+                            let added = 0, updated = 0;
+                            setItems(prev => {
+                                const list = [...prev];
+                                ticketItems.forEach(t => {
+                                    const idx = list.findIndex(i => i.name.toLowerCase().includes(t.name.toLowerCase()));
+                                    if (idx >= 0) {
+                                        list[idx] = { ...list[idx], price: t.price, lastBought: todayISO(), status: 'stocked' };
                                         updated++;
                                     } else {
-                                        newItemsList.push({ id: Date.now()+Math.random(), name: tItem.name, places: ['Ticket'], status: 'stocked', lastBought: 'Hoy', qty: tItem.qty||'1', price: tItem.price, expiry: '', category:'Otros', isEssential: false });
+                                        list.push({ id: newId(), name: t.name, places: ['Ticket'], status: 'stocked', lastBought: todayISO(), qty: t.qty || '1', price: t.price, expiry: '', category: 'Otros', isEssential: false });
                                         added++;
                                     }
                                 });
-                                setItems(newItemsList); setResult(`🧾 Ticket: ${added} nuevos, ${updated} actualizados.`);
-                            }
-                        } catch(err) { setResult("Error procesando datos del ticket."); }
+                                return list;
+                            });
+                            setResult(`🧾 Ticket: ${added} nuevos, ${updated} actualizados.`);
+                        } catch (err) { setResult("Error procesando datos del ticket."); }
                     }
                 };
             };
@@ -316,12 +356,12 @@
             };
 
             const addItem = (e) => {
-                if(e) e.preventDefault(); if(!name.trim()) return;
+                if (e) e.preventDefault(); if (!name.trim()) return;
                 const existing = items.find(i => i.name.toLowerCase() === name.toLowerCase() && i.status === 'inactive');
                 if (existing) {
-                    setItems(items.map(i => i.id === existing.id ? { ...i, status: tab==='inv'?'stocked':'needed' } : i));
+                    setItems(items.map(i => i.id === existing.id ? { ...i, status: tab === 'inv' ? 'stocked' : 'needed' } : i));
                 } else {
-                    setItems([...items, { id: Date.now(), name, places: selTags, status: tab==='inv'?'stocked':'needed', lastBought: tab==='inv'?'Hoy':null, qty:'', price:'', expiry:'', category: 'Otros', isEssential: false }]);
+                    setItems([...items, { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false }]);
                 }
                 setName(''); setSelTags(['General']);
             };
@@ -371,6 +411,7 @@
                             <div className="flex gap-2">
                                 <label className="p-2 bg-white/20 rounded-full hover:bg-white/30 cursor-pointer"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
                                 <button onClick={()=>{setModal('dictate'); setResult(null)}} className="p-2 bg-white/20 rounded-full"><Icon name="Mic"/></button>
+                                <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} className="p-2 bg-white/20 rounded-full"><Icon name="Chef"/></button>
                                 <button onClick={()=>setModal('settings')} className="p-2 bg-white/20 rounded-full"><Icon name="Settings"/></button>
                             </div>
                         </div>
@@ -455,6 +496,15 @@
                         </div>
                     )}
 
+                    {undoSnapshot && (
+                        <div className="absolute bottom-4 left-4 right-4 toast-enter pb-safe-bottom z-30">
+                            <div className="bg-gray-900 text-white p-3 rounded-xl shadow-xl flex justify-between items-center">
+                                <span className="text-sm">✓ {undoSnapshot.label}</span>
+                                <button onClick={() => { setItems(undoSnapshot.items); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold">Deshacer</button>
+                            </div>
+                        </div>
+                    )}
+
                     {confirmData.isOpen && (
                         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-enter">
                             <div className="bg-white w-full max-w-sm rounded-2xl p-6 text-center shadow-2xl">
@@ -476,6 +526,7 @@
                                         {modal==='settings' && <><Icon name="Settings"/> Ajustes</>}
                                         {modal==='edit' && <><Icon name="Edit"/> Editar</>}
                                         {modal==='dictate' && <><Icon name="Mic"/> Dictado AI</>}
+                                        {modal==='chef' && <><Icon name="Chef"/> Chef AI</>}
                                         {modal==='ticket' && <><Icon name="Camera"/> Ticket AI</>}
                                     </h3>
                                     <button onClick={()=>{setModal(null); setEditItem(null); setResult(null)}} className="bg-gray-100 p-1 rounded-full"><Icon name="X"/></button>
