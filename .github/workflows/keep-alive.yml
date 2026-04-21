@@ -1,0 +1,36 @@
+name: Keep Supabase alive
+
+# Pings the project once a day so the free-tier auto-pause (7 days idle) never triggers.
+# Reads URL + anon key from config.js so there is one source of truth.
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # daily 12:00 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Supabase config
+        id: cfg
+        run: |
+          URL=$(grep -oE "SUPABASE_URL[[:space:]]*=[[:space:]]*'[^']+'" config.js | sed -E "s/.*'([^']+)'/\1/")
+          KEY=$(grep -oE "SUPABASE_ANON_KEY[[:space:]]*=[[:space:]]*'[^']+'" config.js | sed -E "s/.*'([^']+)'/\1/")
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "config.js still empty, nothing to ping"
+            exit 0
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Ping Supabase REST
+        if: steps.cfg.outputs.url != ''
+        run: |
+          curl -fsS "${{ steps.cfg.outputs.url }}/rest/v1/groups?select=id&limit=1" \
+            -H "apikey: ${{ steps.cfg.outputs.key }}" \
+            -H "Authorization: Bearer ${{ steps.cfg.outputs.key }}"
+          echo
+          echo "Supabase pinged OK"
