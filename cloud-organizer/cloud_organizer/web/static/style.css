@@ -1,0 +1,113 @@
+/* Cloud File Organizer - Custom styles */
+
+/* Smooth scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+
+/* Tag chips */
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    background: #1f2937;
+    border: 1px solid #374151;
+    color: #d1d5db;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tag-chip:hover {
+    background: #374151;
+    color: #f3f4f6;
+}
+.tag-chip .remove {
+    font-size: 0.65rem;
+    opacity: 0.5;
+}
+.tag-chip:hover .remove {
+    opacity: 1;
+    color: #ef4444;
+}
+
+/* Cloud badges */
+.cloud-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.cloud-badge.gdrive { background: #1a472a; color: #4ade80; }
+.cloud-badge.onedrive { background: #1e3a5f; color: #60a5fa; }
+.cloud-badge.dropbox { background: #1e3a5f; color: #93c5fd; }
+.cloud-badge.icloud { background: #3b1f4a; color: #c084fc; }
+
+/* Stats card */
+.stat-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+}
+.stat-card .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #f9fafb;
+}
+.stat-card .stat-label {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+
+/* Table row hover */
+#files-table-body tr {
+    transition: background 0.1s;
+}
+#files-table-body tr:hover {
+    background: #111827;
+}
+
+/* Loading spinner */
+.spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Duplicate group */
+.dupe-group {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+.dupe-group h4 {
+    font-weight: 600;
+    margin-bottom: 8px;
+}
