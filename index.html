@@ -756,6 +756,7 @@
                                 <label className="p-2 bg-white/20 rounded-full hover:bg-white/30 cursor-pointer"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
                                 <button onClick={()=>{setModal('dictate'); setResult(null)}} className="p-2 bg-white/20 rounded-full"><Icon name="Mic"/></button>
                                 <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} className="p-2 bg-white/20 rounded-full"><Icon name="Chef"/></button>
+                                <button onClick={()=>setModal('suggest')} className="p-2 bg-white/20 rounded-full"><Icon name="Sparkles"/></button>
                                 <button onClick={()=>setModal('settings')} className="p-2 bg-white/20 rounded-full"><Icon name="Settings"/></button>
                             </div>
                         </div>
@@ -875,6 +876,7 @@
                                         {modal==='dictate' && <><Icon name="Mic"/> Dictado AI</>}
                                         {modal==='chef' && <><Icon name="Chef"/> Chef AI</>}
                                         {modal==='ticket' && <><Icon name="Camera"/> Ticket AI</>}
+                                        {modal==='suggest' && <><Icon name="Sparkles"/> Sugerencias</>}
                                     </h3>
                                     <button onClick={()=>{setModal(null); setEditItem(null); setResult(null)}} className="bg-gray-100 p-1 rounded-full"><Icon name="X"/></button>
                                 </div>
@@ -989,6 +991,34 @@
                                         )}
                                     </div>
                                 )}
+
+                                {modal === 'suggest' && (() => {
+                                    const today = new Date();
+                                    const suggested = items.filter(i => {
+                                        if (!i.isEssential || i.status !== 'stocked' || !i.lastBought) return false;
+                                        const lb = new Date(i.lastBought);
+                                        if (isNaN(lb)) return false;
+                                        const days = Math.floor((today - lb) / (1000 * 60 * 60 * 24));
+                                        return days > 7;
+                                    });
+                                    if (suggested.length === 0) {
+                                        return <p className="text-sm text-gray-500 text-center py-4">Tu alacena se ve bien, nada por sugerir.</p>;
+                                    }
+                                    return (
+                                        <div className="space-y-2">
+                                            <p className="text-xs text-gray-500 mb-2">Estos esenciales llevan más de 7 días sin volver a comprarse:</p>
+                                            {suggested.map(s => (
+                                                <div key={s.id} className="flex items-center justify-between bg-gray-50 border rounded-lg p-2">
+                                                    <div>
+                                                        <p className="text-sm font-semibold">{s.name}</p>
+                                                        <p className="text-[10px] text-gray-500">Última compra: {s.lastBought}</p>
+                                                    </div>
+                                                    <button onClick={()=>{ setItems(prev => prev.map(i => i.id === s.id ? {...i, status: 'needed'} : i)); }} className="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">A la lista</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
                     )}
