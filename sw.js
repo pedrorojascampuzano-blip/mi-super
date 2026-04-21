@@ -31,6 +31,8 @@ self.addEventListener('fetch', (event) => {
   // Never cache live API calls
   if (url.hostname === 'generativelanguage.googleapis.com') return;
   if (url.hostname === 'api.deepseek.com') return;
+  if (url.hostname === 'api.anthropic.com') return;
+  if (url.hostname === 'api.openai.com') return;
   if (url.hostname.endsWith('.supabase.co')) return;
 
   event.respondWith(

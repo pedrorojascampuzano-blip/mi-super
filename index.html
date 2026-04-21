@@ -74,6 +74,8 @@
         const SuperApp = () => {
             const [key, setKey] = useState(()=>localStorage.getItem('gem_key')||'');
             const [dsKey, setDsKey] = useState(()=>localStorage.getItem('ds_key')||'');
+            const [claudeKey, setClaudeKey] = useState(()=>localStorage.getItem('cl_key')||'');
+            const [openaiKey, setOpenaiKey] = useState(()=>localStorage.getItem('oa_key')||'');
             const [tab, setTab] = useState('shop'); 
             const [items, setItems] = useState(() => { try { return JSON.parse(localStorage.getItem('data_v4')) || []; } catch { return []; } });
             const [savedTags, setSavedTags] = useState(() => { try { return JSON.parse(localStorage.getItem('saved_tags')) || ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']; } catch { return ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']; } });
@@ -136,6 +138,8 @@
             useEffect(() => { localStorage.setItem('saved_tags', JSON.stringify(savedTags)); }, [savedTags]);
             useEffect(() => { localStorage.setItem('gem_key', key); }, [key]);
             useEffect(() => { localStorage.setItem('ds_key', dsKey); }, [dsKey]);
+            useEffect(() => { localStorage.setItem('cl_key', claudeKey); }, [claudeKey]);
+            useEffect(() => { localStorage.setItem('oa_key', openaiKey); }, [openaiKey]);
             useEffect(() => { groupId ? localStorage.setItem('cloud_group_id', groupId) : localStorage.removeItem('cloud_group_id'); }, [groupId]);
             useEffect(() => { groupCode ? localStorage.setItem('cloud_group_code', groupCode) : localStorage.removeItem('cloud_group_code'); }, [groupCode]);
             useEffect(() => { groupName ? localStorage.setItem('cloud_group_name', groupName) : localStorage.removeItem('cloud_group_name'); }, [groupName]);
@@ -425,64 +429,138 @@
             };
 
             // --- IA LOGIC (DeepSeek + Gemini, structured output) ---
+            // ─── AI provider functions ───
+            const callGemini = async (textPrompt, imageData, wantJson) => {
+                const parts = [{ text: textPrompt }];
+                if (imageData) parts.push({ inline_data: { mime_type: imageData.mime, data: imageData.data } });
+                const body = { contents: [{ parts }] };
+                if (wantJson) body.generationConfig = { responseMimeType: "application/json" };
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message || 'Gemini error');
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            };
+
+            const callDeepSeek = async (textPrompt, imageData, wantJson) => {
+                if (imageData) throw new Error('DeepSeek no soporta imágenes');
+                const body = {
+                    model: "deepseek-chat",
+                    messages: [
+                        { role: "system", content: "Eres un asistente de inventario experto." },
+                        { role: "user", content: textPrompt }
+                    ],
+                    stream: false
+                };
+                if (wantJson) body.response_format = { type: "json_object" };
+                const res = await fetch("https://api.deepseek.com/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${dsKey}` },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message || 'DeepSeek error');
+                return data.choices?.[0]?.message?.content || "";
+            };
+
+            const callClaude = async (textPrompt, imageData, wantJson) => {
+                const userContent = imageData
+                    ? [
+                        { type: 'image', source: { type: 'base64', media_type: imageData.mime, data: imageData.data } },
+                        { type: 'text', text: textPrompt }
+                      ]
+                    : textPrompt;
+                const body = {
+                    model: 'claude-haiku-4-5',
+                    max_tokens: 2048,
+                    system: wantJson
+                        ? 'Eres un asistente de inventario experto. Responde SOLO con JSON válido. Sin markdown, sin explicaciones, solo el JSON.'
+                        : 'Eres un asistente de inventario experto.',
+                    messages: [{ role: 'user', content: userContent }]
+                };
+                const res = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': claudeKey,
+                        'anthropic-version': '2023-06-01',
+                        'anthropic-dangerous-direct-browser-access': 'true'
+                    },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message || 'Claude error');
+                return data.content?.[0]?.text || "";
+            };
+
+            const callOpenAI = async (textPrompt, imageData, wantJson) => {
+                const userContent = imageData
+                    ? [
+                        { type: 'text', text: textPrompt },
+                        { type: 'image_url', image_url: { url: `data:${imageData.mime};base64,${imageData.data}` } }
+                      ]
+                    : textPrompt;
+                const body = {
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        { role: 'system', content: wantJson
+                            ? 'Eres un asistente de inventario experto. Responde SOLO con JSON válido.'
+                            : 'Eres un asistente de inventario experto.' },
+                        { role: 'user', content: userContent }
+                    ]
+                };
+                if (wantJson) body.response_format = { type: 'json_object' };
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message || 'OpenAI error');
+                return data.choices?.[0]?.message?.content || "";
+            };
+
+            // Dispatcher: picks the best available provider for the task and falls back on error
             const callAI = async (textPrompt, imageData = null, wantJson = false) => {
                 setLoading(true); setResult(null);
 
-                if (imageData) {
-                    if (!key) { setLoading(false); setResult("⚠️ Tickets requieren API Key de Gemini."); return null; }
-                    try {
-                        const body = { contents: [{ parts: [{ text: textPrompt }, { inline_data: { mime_type: imageData.mime, data: imageData.data } }] }] };
-                        if (wantJson) body.generationConfig = { responseMimeType: "application/json" };
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-                        });
-                        const data = await res.json();
-                        setLoading(false);
-                        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                    } catch (e) { setLoading(false); setResult("Error Gemini."); return null; }
-                }
+                const providers = {
+                    gemini:   { has: !!key,       vision: true,  fn: callGemini   },
+                    claude:   { has: !!claudeKey, vision: true,  fn: callClaude   },
+                    openai:   { has: !!openaiKey, vision: true,  fn: callOpenAI   },
+                    deepseek: { has: !!dsKey,     vision: false, fn: callDeepSeek }
+                };
 
-                if (dsKey) {
+                const order = imageData
+                    ? ['gemini', 'claude', 'openai']                          // vision required
+                    : (wantJson
+                        ? ['deepseek', 'gemini', 'openai', 'claude']         // structured (cheap first)
+                        : ['claude', 'openai', 'gemini', 'deepseek']);       // free-form (quality first)
+
+                const errors = [];
+                for (const name of order) {
+                    const p = providers[name];
+                    if (!p.has) continue;
+                    if (imageData && !p.vision) continue;
                     try {
-                        const body = {
-                            model: "deepseek-chat",
-                            messages: [
-                                { role: "system", content: "Eres un asistente de inventario experto. Responde SOLO en JSON." },
-                                { role: "user", content: textPrompt }
-                            ],
-                            stream: false
-                        };
-                        if (wantJson) body.response_format = { type: "json_object" };
-                        const res = await fetch("https://api.deepseek.com/chat/completions", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${dsKey}` },
-                            body: JSON.stringify(body)
-                        });
-                        const data = await res.json();
-                        if (data.error) throw new Error(data.error.message);
+                        const out = await p.fn(textPrompt, imageData, wantJson);
                         setLoading(false);
-                        return data.choices?.[0]?.message?.content || "";
+                        return out;
                     } catch (e) {
-                        console.error(e);
-                        if (!key) { setLoading(false); setResult(`Error DeepSeek: ${e.message}`); return null; }
+                        console.error(`${name} falló:`, e);
+                        errors.push(`${name}: ${e.message}`);
                     }
                 }
 
-                if (key) {
-                    try {
-                        const body = { contents: [{ parts: [{ text: textPrompt }] }] };
-                        if (wantJson) body.generationConfig = { responseMimeType: "application/json" };
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-                        });
-                        const data = await res.json();
-                        setLoading(false);
-                        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                    } catch (e) { setLoading(false); setResult("Error Gemini."); return null; }
-                }
-
                 setLoading(false);
-                setResult("⚠️ Configura una API Key (Gemini o DeepSeek).");
+                if (errors.length === 0) {
+                    setResult(imageData
+                        ? "⚠️ Para tickets necesitas API key de Gemini, Claude u OpenAI."
+                        : "⚠️ Configura al menos una API Key en Ajustes.");
+                } else {
+                    setResult("Todos los providers fallaron · " + errors.join(' | '));
+                }
                 return null;
             };
 
@@ -809,14 +887,25 @@
                                             <p className="font-bold mb-1">Tus datos viven en tu navegador.</p>
                                             <p>Las API keys se guardan localmente y solo se envían a Google/DeepSeek cuando usas voz, tickets o chef.</p>
                                         </div>
+                                        <div className="text-[10px] text-gray-500 -mb-2">Configura uno o varios. La app usa el mejor disponible para cada tarea (visión: Gemini → Claude → OpenAI; texto: DeepSeek → Gemini → OpenAI → Claude).</div>
                                         <div>
-                                            <p className="text-xs font-bold text-gray-700 mb-1">Google Gemini API Key</p>
-                                            <p className="text-[10px] text-gray-500 mb-1">Gratis. Obtén la tuya en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">aistudio.google.com</a></p>
+                                            <p className="text-xs font-bold text-gray-700 mb-1">Google Gemini</p>
+                                            <p className="text-[10px] text-gray-500 mb-1">Gratis. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">aistudio.google.com</a></p>
                                             <input value={key} onChange={e=>setKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="AIza..."/>
                                         </div>
                                         <div>
-                                            <p className="text-xs font-bold text-gray-700 mb-1">DeepSeek API Key (opcional)</p>
-                                            <p className="text-[10px] text-gray-500 mb-1">Alternativa para texto. <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" className="text-indigo-600 underline">platform.deepseek.com</a></p>
+                                            <p className="text-xs font-bold text-gray-700 mb-1">Anthropic Claude</p>
+                                            <p className="text-[10px] text-gray-500 mb-1">Pago, modelo Haiku. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" className="text-indigo-600 underline">console.anthropic.com</a></p>
+                                            <input value={claudeKey} onChange={e=>setClaudeKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-ant-..."/>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-700 mb-1">OpenAI</p>
+                                            <p className="text-[10px] text-gray-500 mb-1">Pago, modelo gpt-4o-mini. <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" className="text-indigo-600 underline">platform.openai.com</a></p>
+                                            <input value={openaiKey} onChange={e=>setOpenaiKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-..."/>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-700 mb-1">DeepSeek</p>
+                                            <p className="text-[10px] text-gray-500 mb-1">Más barato para texto, sin visión. <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" className="text-indigo-600 underline">platform.deepseek.com</a></p>
                                             <input value={dsKey} onChange={e=>setDsKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-..."/>
                                         </div>
                                         <button onClick={()=>setModal(null)} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold">Guardar</button>
@@ -867,7 +956,7 @@
                                         <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Solo este dispositivo</button>
                                     </>) : (<>
                                         <p className="text-[11px] text-gray-500 bg-gray-50 border rounded-lg p-3 mb-4">
-                                            Tus datos viven en tu navegador. Para voz/tickets necesitas una API key gratis de <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">Google Gemini</a>.
+                                            Tus datos viven en tu navegador. Para voz/tickets/chef necesitas una API key (Gemini gratis, o Claude/OpenAI/DeepSeek de pago). Configurable desde Ajustes.
                                         </p>
                                         <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); setModal('settings'); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Configurar API Key</button>
                                         <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Empezar sin AI</button>
