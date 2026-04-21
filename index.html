@@ -97,6 +97,25 @@
 
             const newId = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '_' + Math.random().toString(36).slice(2));
             const todayISO = () => new Date().toISOString().slice(0, 10);
+            const nicknameOf = (uid) => {
+                if (!uid) return null;
+                const m = members.find(x => x.member_id === uid);
+                return m?.nickname || 'alguien';
+            };
+            const relativeTime = (iso) => {
+                if (!iso) return '';
+                const now = Date.now();
+                const t = new Date(iso).getTime();
+                if (isNaN(t)) return '';
+                const s = Math.max(0, Math.round((now - t) / 1000));
+                if (s < 60) return 'hace unos segundos';
+                const m = Math.round(s / 60);
+                if (m < 60) return `hace ${m} min`;
+                const h = Math.round(m / 60);
+                if (h < 24) return `hace ${h} h`;
+                const d = Math.round(h / 24);
+                return `hace ${d} d`;
+            };
             const [undoSnapshot, setUndoSnapshot] = useState(null);
             const undoTimerRef = useRef(null);
             const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded_v1') === '1');
@@ -168,7 +187,8 @@
                 const itemFromRow = (r) => ({
                     id: r.id, name: r.name, places: r.places || ['General'], category: r.category || 'Otros',
                     status: r.status, isEssential: !!r.is_essential, lastBought: r.last_bought,
-                    qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || ''
+                    qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || '',
+                    updatedBy: r.updated_by, updatedAt: r.updated_at
                 });
 
                 const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -792,6 +812,9 @@
                                                 {i.isEssential && <Icon name="Star" size={12} className="text-yellow-400 fill-current"/>}
                                             </p>
                                             <p className="text-[10px] text-gray-500">{i.category} • {i.places.join(', ')}</p>
+                                            {cloudMode && i.updatedBy && (
+                                                <p className="text-[9px] text-gray-400">Editado por {nicknameOf(i.updatedBy)} · {relativeTime(i.updatedAt)}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
