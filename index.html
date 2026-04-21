@@ -207,6 +207,10 @@
                         const { data } = await sb.from('group_members').select('member_id, nickname').eq('group_id', groupId);
                         if (alive && data) setMembers(data);
                     })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'saved_tags', filter: `group_id=eq.${groupId}` }, async () => {
+                        const { data } = await sb.from('saved_tags').select('tag').eq('group_id', groupId);
+                        if (alive && data) setSavedTags(prev => Array.from(new Set(['General', ...prev.filter(t => t !== 'General'), ...data.map(d => d.tag)])));
+                    })
                     .subscribe();
 
                 return () => {
@@ -661,7 +665,19 @@
             };
             
             const toggleTag = (t) => { if(selTags.includes(t)) { if(selTags.length>1) setSelTags(selTags.filter(x=>x!==t)); } else setSelTags([...selTags, t]); };
-            const addTag = () => { if(tagInput && !savedTags.includes(tagInput)){ setSavedTags([...savedTags, tagInput]); setSelTags([...selTags, tagInput]); setTagInput(''); } };
+            const addTag = async () => {
+                if(!tagInput || savedTags.includes(tagInput)) return;
+                const newTag = tagInput;
+                setSavedTags([...savedTags, newTag]);
+                setSelTags([...selTags, newTag]);
+                setTagInput('');
+                if (cloudMode && sbRef.current) {
+                    try {
+                        const { error } = await sbRef.current.from('saved_tags').insert({ group_id: groupId, tag: newTag });
+                        if (error && error.code !== '23505') console.error('saved_tags insert failed', error);
+                    } catch (e) { console.error('saved_tags insert threw', e); }
+                }
+            };
             const openEdit = (item) => { setEditItem({...item}); setModal('edit'); };
             const saveEdit = () => { setItems(items.map(i => i.id === editItem.id ? editItem : i)); setModal(null); setEditItem(null); };
 
