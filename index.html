@@ -119,6 +119,36 @@
             const [undoSnapshot, setUndoSnapshot] = useState(null);
             const undoTimerRef = useRef(null);
             const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded_v1') === '1');
+            const [recipeWizard, setRecipeWizard] = useState(null); // { title, steps, step }
+
+            const TODAY_RECIPE = {
+                title: "Arroz con pollo — Instant Pot",
+                steps: [
+                    "Corta el pollo en trozos medianos. Sazona con sal, pimienta y ajo en polvo por todos lados.",
+                    "Pon el Instant Pot en modo Sauté. Agrega un chorrito de aceite y espera que caliente.",
+                    "Dora el pollo 3-4 minutos por lado hasta que esté sellado. No muevas mucho.",
+                    "Enjuaga 1.5 tazas de arroz bajo el chorro hasta que el agua salga clara.",
+                    "Agrega el arroz encima del pollo. Vierte 2 tazas de agua (o caldo) y mezcla un poco.",
+                    "Cierra la tapa del Instant Pot. Presión alta (High), 8 minutos.",
+                    "Cuando termine, deja en Natural Release 5 minutos. Luego mueve la válvula a Vent.",
+                    "Abre, esponja el arroz con un tenedor. Listo."
+                ]
+            };
+
+            const parseRecipeSteps = (text) => {
+                if (!text) return [];
+                const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+                const steps = [];
+                for (const line of lines) {
+                    const m = line.match(/^(?:\d+[\.\)]\s*)?(.+)$/);
+                    if (m && m[1].length > 10) steps.push(m[1]);
+                }
+                return steps.length >= 2 ? steps : [];
+            };
+
+            const openRecipeWizard = (title, steps) => {
+                setRecipeWizard({ title, steps, step: 0 });
+            };
             const [googleUser, setGoogleUser] = useState(null);
             const [updateReady, setUpdateReady] = useState(false);
 
@@ -696,8 +726,17 @@
             const handleChef = async () => {
                 const stock = items.filter(i=>i.status==='stocked').map(i=>`${i.name} (${i.qty||''})`).join(', ');
                 if(!stock) { setResult("Alacena vacía."); return; }
-                const raw = await callAI(`Soy chef. Tengo: ${stock}. Crea receta corta. Título divertido.`);
-                setResult(raw);
+                const raw = await callAI(`Soy chef. Tengo: ${stock}. Crea receta corta con pasos numerados. Título divertido en la primera línea. Luego los pasos con número y punto.`);
+                if (raw) {
+                    setResult(raw);
+                    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+                    const title = lines[0]?.replace(/^#+\s*/, '') || 'Receta Chef AI';
+                    const steps = parseRecipeSteps(lines.slice(1).join('\n'));
+                    if (steps.length >= 2) {
+                        setResult(raw + '\n\n[Toca "Ver paso a paso" para cocinar]');
+                        window.__lastChefRecipe = { title, steps };
+                    }
+                }
             };
 
             const addItem = (e) => {
@@ -783,6 +822,7 @@
                                 <label className="p-2 bg-white/20 rounded-full hover:bg-white/30 cursor-pointer"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
                                 <button onClick={()=>{setModal('dictate'); setResult(null)}} className="p-2 bg-white/20 rounded-full"><Icon name="Mic"/></button>
                                 <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} className="p-2 bg-white/20 rounded-full"><Icon name="Chef"/></button>
+                                <button onClick={()=>openRecipeWizard(TODAY_RECIPE.title, TODAY_RECIPE.steps)} className="p-2 bg-white/20 rounded-full text-[9px] font-bold leading-none flex flex-col items-center gap-0.5"><Icon name="Star" size={14}/></button>
                                 <button onClick={()=>setModal('suggest')} className="p-2 bg-white/20 rounded-full"><Icon name="Sparkles"/></button>
                                 <button onClick={()=>setModal('settings')} className="p-2 bg-white/20 rounded-full"><Icon name="Settings"/></button>
                             </div>
@@ -818,9 +858,12 @@
                             </div>
                         )}
                         {(tab==='inv' || tab==='hist') && (
-                            <div className="flex justify-end mb-2">
+                            <div className="flex justify-end mb-2 gap-2 flex-wrap">
+                                {tab==='inv' && (
+                                    <button onClick={()=>openRecipeWizard(TODAY_RECIPE.title, TODAY_RECIPE.steps)} className="bg-orange-50 border border-orange-200 text-orange-700 px-3 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"><Icon name="Star" size={12}/> Receta de hoy</button>
+                                )}
                                 <button onClick={handleExportCSV} className="bg-white border text-indigo-600 px-3 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"><Icon name="Download" size={12}/> Exportar CSV</button>
-                                {tab==='inv' && <div className="ml-2 relative overflow-hidden"><button className="bg-white border text-gray-600 px-3 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"><Icon name="Upload" size={12}/> Importar</button><input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 opacity-0"/></div>}
+                                {tab==='inv' && <div className="relative overflow-hidden"><button className="bg-white border text-gray-600 px-3 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"><Icon name="Upload" size={12}/> Importar</button><input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 opacity-0"/></div>}
                             </div>
                         )}
 
@@ -854,9 +897,22 @@
                                         <button onClick={()=>handleSmartDelete(i)} className="text-gray-300 hover:text-red-500"><Icon name="Trash" size={16}/></button>
                                     </div>
                                 </div>
-                                {(i.qty || i.price || i.expiry) && (
-                                    <div className="flex gap-3 text-[10px] text-gray-500 border-t pt-1 mt-1">
-                                        {i.qty && <span className="bg-gray-100 px-1 rounded">{i.qty}</span>}
+                                {(i.qty || i.price || i.expiry || tab === 'inv') && (
+                                    <div className="flex gap-3 text-[10px] text-gray-500 border-t pt-1 mt-1 items-center">
+                                        {tab === 'inv' ? (
+                                            <label className="flex items-center gap-1 flex-1">
+                                                <span className="text-gray-400 shrink-0">Cantidad:</span>
+                                                <input
+                                                    value={i.qty || ''}
+                                                    placeholder="ej: 2 kg"
+                                                    onClick={e=>e.stopPropagation()}
+                                                    onChange={e=>setItems(items.map(x=>x.id===i.id?{...x,qty:e.target.value}:x))}
+                                                    className="bg-gray-100 px-1.5 py-0.5 rounded outline-none border border-transparent focus:border-indigo-300 w-28 text-[10px]"
+                                                />
+                                            </label>
+                                        ) : (
+                                            i.qty && <span className="bg-gray-100 px-1 rounded">{i.qty}</span>
+                                        )}
                                         {i.price && <span className="bg-green-50 text-green-700 px-1 rounded">${i.price}</span>}
                                         {i.expiry && <span className="flex items-center gap-1 bg-red-50 text-red-600 px-1 rounded"><Icon name="Clock" size={10}/> {i.expiry}</span>}
                                     </div>
@@ -1013,7 +1069,15 @@
                                         )}
                                         {(loading || result) && (
                                             <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 text-sm mt-2 text-center">
-                                                {loading ? <p className="text-indigo-600 animate-pulse">Pensando...</p> : <><div className="prose prose-sm text-left whitespace-pre-wrap">{result}</div><button onClick={()=>{setResult(null); setPrompt('')}} className="mt-2 w-full bg-white py-1 rounded text-xs font-bold border">Limpiar</button></>}
+                                                {loading ? <p className="text-indigo-600 animate-pulse">Pensando...</p> : (
+                                                    <>
+                                                        <div className="prose prose-sm text-left whitespace-pre-wrap">{result}</div>
+                                                        {modal === 'chef' && window.__lastChefRecipe && (
+                                                            <button onClick={()=>{ openRecipeWizard(window.__lastChefRecipe.title, window.__lastChefRecipe.steps); setModal(null); }} className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold">Ver paso a paso</button>
+                                                        )}
+                                                        <button onClick={()=>{setResult(null); setPrompt(''); window.__lastChefRecipe = null;}} className="mt-2 w-full bg-white py-1 rounded text-xs font-bold border">Limpiar</button>
+                                                    </>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -1137,6 +1201,56 @@
                                     }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Compartir código</button>
                                     <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-700 py-2 rounded-xl text-sm font-bold">Empezar</button>
                                 </>)}
+                            </div>
+                        </div>
+                    )}
+
+                    {recipeWizard && (
+                        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-[80] flex items-center justify-center p-5 animate-enter">
+                            <div className="bg-white w-full rounded-2xl shadow-2xl flex flex-col overflow-hidden" style={{maxHeight:'90%'}}>
+                                <div className="bg-indigo-600 px-5 py-4 flex justify-between items-start">
+                                    <div>
+                                        <p className="text-indigo-200 text-xs font-medium mb-1">{recipeWizard.title}</p>
+                                        <p className="text-white text-[11px]">Paso {recipeWizard.step + 1} de {recipeWizard.steps.length}</p>
+                                    </div>
+                                    <button onClick={()=>setRecipeWizard(null)} className="bg-white/20 p-1.5 rounded-full"><Icon name="X" size={16} className="text-white"/></button>
+                                </div>
+                                <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
+                                    {recipeWizard.step < recipeWizard.steps.length ? (
+                                        <>
+                                            <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center mb-5 shrink-0">
+                                                <span className="text-indigo-700 font-bold text-lg">{recipeWizard.step + 1}</span>
+                                            </div>
+                                            <p className="text-xl text-gray-800 font-medium text-center leading-relaxed">{recipeWizard.steps[recipeWizard.step]}</p>
+                                        </>
+                                    ) : (
+                                        <div className="text-center">
+                                            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                                                <Icon name="Check" size={32} className="text-green-600"/>
+                                            </div>
+                                            <p className="text-2xl font-bold text-gray-800">Listo!</p>
+                                            <p className="text-gray-500 text-sm mt-1">Que te aproveche.</p>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="px-5 pb-6 flex gap-3">
+                                    <button
+                                        disabled={recipeWizard.step === 0}
+                                        onClick={()=>setRecipeWizard(w=>({...w, step: w.step - 1}))}
+                                        className="flex-1 py-4 rounded-xl font-bold text-base border-2 border-gray-200 text-gray-600 disabled:opacity-30"
+                                    >Anterior</button>
+                                    {recipeWizard.step < recipeWizard.steps.length ? (
+                                        <button
+                                            onClick={()=>setRecipeWizard(w=>({...w, step: w.step + 1}))}
+                                            className="flex-1 py-4 rounded-xl font-bold text-base bg-indigo-600 text-white"
+                                        >Siguiente</button>
+                                    ) : (
+                                        <button
+                                            onClick={()=>setRecipeWizard(null)}
+                                            className="flex-1 py-4 rounded-xl font-bold text-base bg-green-600 text-white"
+                                        >Cerrar</button>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
