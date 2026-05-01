@@ -845,10 +845,20 @@
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 pb-safe-bottom safe-bottom">
                         {tab==='shop' && (
-                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                                <button onClick={()=>setFilter('Todos')} className={`px-3 py-1 rounded-full text-xs font-bold border ${filter==='Todos'?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>Todos</button>
-                                {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${filter===t?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>{t}</button>))}
-                            </div>
+                            <React.Fragment>
+                                <button onClick={()=>openRecipeWizard(TODAY_RECIPE.title, TODAY_RECIPE.steps)} className="w-full flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-1 text-left">
+                                    <span className="text-2xl">👨‍🍳</span>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-bold text-orange-700">Receta de hoy</p>
+                                        <p className="text-sm text-gray-700 font-medium truncate">{TODAY_RECIPE.title}</p>
+                                    </div>
+                                    <Icon name="ChevronRight" size={16} className="text-orange-400 shrink-0"/>
+                                </button>
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                    <button onClick={()=>setFilter('Todos')} className={`px-3 py-1 rounded-full text-xs font-bold border ${filter==='Todos'?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>Todos</button>
+                                    {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${filter===t?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>{t}</button>))}
+                                </div>
+                            </React.Fragment>
                         )}
                         {tab==='inv' && (
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 mb-2">
