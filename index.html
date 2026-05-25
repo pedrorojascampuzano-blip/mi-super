@@ -809,6 +809,96 @@
             };
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
+            // ─── "Solo foto" flow: create item from photo, auto-fill via Vision ───
+            const handlePhotoOnlyAdd = async (file) => {
+                if (!file) return;
+                if (!cloudMode || !sbRef.current) { alert('Inicia sesión / únete a un grupo para usar Auto-foto.'); return; }
+                const placeholderId = newId();
+                const placeholder = {
+                    id: placeholderId,
+                    name: 'Identificando…',
+                    places: selTags,
+                    status: tab === 'inv' ? 'stocked' : 'needed',
+                    lastBought: tab === 'inv' ? todayISO() : null,
+                    qty: '', price: '', expiry: '',
+                    category: 'Otros',
+                    isEssential: false,
+                    photoUrl: '',
+                    unitCount: null, unitSize: null, unitType: ''
+                };
+                setItems(prev => [...prev, placeholder]);
+
+                let photoUrl;
+                try {
+                    photoUrl = await uploadItemPhoto(placeholder, file);
+                    setItems(prev => prev.map(x => x.id === placeholderId ? { ...x, photoUrl } : x));
+                } catch (e) {
+                    console.error('photo-only upload', e);
+                    alert('Foto no subió: ' + e.message);
+                    setItems(prev => prev.filter(x => x.id !== placeholderId));
+                    return;
+                }
+
+                try {
+                    const enriched = await identifyItemFromPhoto(photoUrl);
+                    setItems(prev => prev.map(x => x.id === placeholderId ? {
+                        ...x,
+                        name: enriched.name || 'Sin identificar — toca para editar',
+                        category: enriched.category,
+                        unitCount: enriched.unitCount,
+                        unitSize:  enriched.unitSize,
+                        unitType:  enriched.unitType
+                    } : x));
+                } catch (e) {
+                    console.error('vision identify', e);
+                    setItems(prev => prev.map(x => x.id === placeholderId ? { ...x, name: 'Sin identificar — toca para editar' } : x));
+                    setResult('Foto subida pero no se pudo identificar (' + e.message + '). Edita manual.');
+                }
+            };
+
+            // ─── Vision auto-fill: photo URL -> {name, category, unitCount, unitSize, unitType} ───
+            const urlToImageData = async (url) => {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error('No se pudo bajar la foto (' + resp.status + ')');
+                const blob = await resp.blob();
+                const mime = blob.type || 'image/jpeg';
+                const data = await new Promise((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = () => res(String(r.result).split(',')[1]);
+                    r.onerror = () => rej(r.error);
+                    r.readAsDataURL(blob);
+                });
+                return { mime, data };
+            };
+            const identifyItemFromPhoto = async (photoUrl) => {
+                const img = await urlToImageData(photoUrl);
+                const prompt = `Identifica el producto en la foto y devuelve JSON exactamente con este schema:
+{
+  "name": "Nombre corto del producto en español, sin marca a menos que sea distintiva (ej. 'Aceite de oliva', 'Tajín', 'Queso fondue')",
+  "category": "UNO de: Alimentos | Medicamentos | Limpieza | Hogar | Mascotas | Otros",
+  "unit_count": null o número entero (cuántos contenedores se ven, ej. 1 frasco, 2 latas),
+  "unit_size": null o número (tamaño impreso en la etiqueta, ej. 250, 1.5),
+  "unit_type": null o UNO de: g | kg | mg | oz | lb | ml | l | oz_fl | pz | pkg | bolsa | lata | caja | botella
+}
+Reglas:
+- Si no estás seguro de un campo, usa null.
+- Si el producto está visible parcialmente o borroso, igual intenta name + category, deja unidades null.
+- Responde SOLO el JSON, sin markdown, sin comentarios.`;
+                const raw = await callAI(prompt, img, true);
+                let parsed;
+                try { parsed = JSON.parse(raw.replace(/^```json\n?|\n?```$/g, '').trim()); }
+                catch (e) { throw new Error('Vision devolvió JSON inválido: ' + raw.slice(0, 120)); }
+                const valid = ['Alimentos','Medicamentos','Limpieza','Hogar','Mascotas','Otros'];
+                const units = ['g','kg','mg','oz','lb','ml','l','oz_fl','pz','pkg','bolsa','lata','caja','botella'];
+                return {
+                    name: (parsed.name && String(parsed.name).trim()) || '',
+                    category: valid.includes(parsed.category) ? parsed.category : 'Otros',
+                    unitCount: Number.isFinite(parsed.unit_count) ? Math.round(parsed.unit_count) : null,
+                    unitSize:  Number.isFinite(parsed.unit_size)  ? Number(parsed.unit_size)     : null,
+                    unitType:  units.includes(parsed.unit_type)   ? parsed.unit_type             : ''
+                };
+            };
+
             // ─── Unit formatting (display "3×250 g" from structured fields) ───
             const formatUnits = (it) => {
                 const c = it.unitCount, s = it.unitSize, u = it.unitType;
@@ -882,9 +972,13 @@
                             </div>
                         </div>
                         <div className="bg-white/10 backdrop-blur p-2 rounded-xl border border-white/20">
-                            <div className="flex gap-2 mb-2">
+                            <div className="flex gap-2 mb-2 items-center">
                                 <input value={name} onChange={e=>setName(e.target.value)} placeholder={tab==='inv'?"Agregar a Casa...":"¿Qué falta?"} className="bg-transparent w-full text-white placeholder-indigo-200 outline-none font-medium"/>
-                                <button onClick={addItem} disabled={!name} className="bg-white text-indigo-600 p-2 rounded-lg"><Icon name="Plus"/></button>
+                                <label className="bg-emerald-400 text-emerald-900 p-2 rounded-lg cursor-pointer flex items-center" title="Auto-llena con foto">
+                                    <Icon name="Camera" size={18}/>
+                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handlePhotoOnlyAdd(f); e.target.value=''; }}/>
+                                </label>
+                                <button onClick={addItem} disabled={!name} className="bg-white text-indigo-600 p-2 rounded-lg disabled:opacity-40"><Icon name="Plus"/></button>
                             </div>
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
                                 <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg shrink-0"><Icon name="Plus" size={10}/><input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="Etiqueta" className="bg-transparent w-14 text-xs text-white outline-none placeholder-indigo-300"/></div>
