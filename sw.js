@@ -1,4 +1,4 @@
-const CACHE = 'mi-super-v8';
+const CACHE = 'mi-super-v9';
 const PRECACHE = [
   './',
   './index.html',
@@ -9,11 +9,16 @@ const PRECACHE = [
   './apple-touch-icon.png'
 ];
 
-// Install: precache assets but DO NOT skipWaiting.
-// We let the client decide when to activate (via SKIP_WAITING message)
-// so users are not force-reloaded mid-edit.
+// Install: precache and skipWaiting immediately.
+// Trade-off: user may get reloaded mid-edit, but the previous behavior
+// (waiting for explicit tap on the update banner) trapped users on
+// stale builds when the banner was visually clipped by the notch.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
