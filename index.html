@@ -233,6 +233,7 @@
                     status: r.status, isEssential: !!r.is_essential, lastBought: r.last_bought,
                     qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || '',
                     photoUrl: r.photo_url || '',
+                    unitCount: r.unit_count ?? null, unitSize: r.unit_size ?? null, unitType: r.unit_type || '',
                     updatedBy: r.updated_by, updatedAt: r.updated_at
                 });
 
@@ -310,7 +311,10 @@
                                 last_bought: i.lastBought || null, qty: i.qty || '',
                                 price: i.price === '' || i.price == null ? null : Number(i.price),
                                 expiry: i.expiry || null,
-                                photo_url: i.photoUrl || null
+                                photo_url: i.photoUrl || null,
+                                unit_count: i.unitCount == null || i.unitCount === '' ? null : Number(i.unitCount),
+                                unit_size:  i.unitSize  == null || i.unitSize  === '' ? null : Number(i.unitSize),
+                                unit_type:  i.unitType  || null
                             }));
                             const { error } = await sb.from('items').upsert(rows);
                             if (error) throw error;
@@ -747,7 +751,7 @@
                 if (existing) {
                     setItems(items.map(i => i.id === existing.id ? { ...i, status: tab === 'inv' ? 'stocked' : 'needed' } : i));
                 } else {
-                    setItems([...items, { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false, photoUrl: '' }]);
+                    setItems([...items, { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false, photoUrl: '', unitCount: null, unitSize: null, unitType: '' }]);
                 }
                 setName(''); setSelTags(['General']);
             };
@@ -767,21 +771,55 @@
                 }
             };
             const openEdit = (item) => { setEditItem({...item}); setModal('edit'); };
-            const saveEdit = () => { setItems(items.map(i => i.id === editItem.id ? editItem : i)); setModal(null); setEditItem(null); };
+            const saveEdit = () => {
+                const { _structured, ...clean } = editItem;
+                setItems(items.map(i => i.id === clean.id ? clean : i));
+                setModal(null);
+                setEditItem(null);
+            };
 
             // ─── Item photo upload (Supabase Storage bucket: item-photos) ───
+            // Core uploader: works for any item, not just the one in the edit modal.
+            // Returns the public URL on success, throws on failure.
+            const uploadItemPhoto = async (item, file) => {
+                if (!cloudMode || !sbRef.current) throw new Error('Sin sesión / grupo — no se puede subir.');
+                const sb = sbRef.current;
+                const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().slice(0, 6);
+                const path = `${groupId}/${item.id}-${Date.now()}.${ext}`;
+                const { error } = await sb.storage.from('item-photos').upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type });
+                if (error) throw error;
+                const { data: pub } = sb.storage.from('item-photos').getPublicUrl(path);
+                return pub.publicUrl;
+            };
+            // From edit modal — updates editItem state.
             const handleItemPhotoUpload = async (file) => {
                 if (!file || !editItem) return;
-                if (!cloudMode || !sbRef.current) { alert('Inicia sesión / únete a un grupo para subir fotos.'); return; }
-                const sb = sbRef.current;
-                const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-                const path = `${groupId}/${editItem.id}-${Date.now()}.${ext}`;
-                const { error } = await sb.storage.from('item-photos').upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type });
-                if (error) { console.error('photo upload', error); alert('Subida falló: ' + error.message); return; }
-                const { data: pub } = sb.storage.from('item-photos').getPublicUrl(path);
-                setEditItem({ ...editItem, photoUrl: pub.publicUrl });
+                try {
+                    const url = await uploadItemPhoto(editItem, file);
+                    setEditItem({ ...editItem, photoUrl: url });
+                } catch (e) { console.error('photo upload', e); alert('Subida falló: ' + e.message); }
+            };
+            // From inventory card — patches the live items array (and DB via diff effect).
+            const handleQuickPhoto = async (item, file) => {
+                if (!file) return;
+                try {
+                    const url = await uploadItemPhoto(item, file);
+                    setItems(prev => prev.map(x => x.id === item.id ? { ...x, photoUrl: url } : x));
+                } catch (e) { console.error('quick photo', e); alert('Foto no subió: ' + e.message); }
             };
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
+
+            // ─── Unit formatting (display "3×250 g" from structured fields) ───
+            const formatUnits = (it) => {
+                const c = it.unitCount, s = it.unitSize, u = it.unitType;
+                if (c && s && u) {
+                    const total = c * s;
+                    return c > 1 ? `${c}×${s} ${u} (${total} ${u})` : `${s} ${u}`;
+                }
+                if (s && u) return `${s} ${u}`;
+                if (it.qty) return it.qty;
+                return '';
+            };
 
             const displayItems = () => {
                 if(tab==='shop') return items.filter(i => (i.status==='needed'||i.status==='cart') && (filter==='Todos'||i.places.includes(filter)||i.places.includes('General')));
@@ -917,30 +955,40 @@
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-2 items-center">
                                         {/* BOTÓN MÁGICO PARA PASAR A LISTA */}
                                         {(tab==='inv' && i.status!=='inactive') && (
                                             <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg"><Icon name="Plus" size={16}/></button>
+                                        )}
+                                        {tab==='inv' && (
+                                            <label className={`p-1.5 rounded-lg cursor-pointer ${i.photoUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`} title={i.photoUrl ? 'Cambiar foto' : 'Tomar foto'} onClick={e=>e.stopPropagation()}>
+                                                <Icon name="Camera" size={16}/>
+                                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleQuickPhoto(i, f); e.target.value=''; }}/>
+                                            </label>
                                         )}
                                         <button onClick={()=>openEdit(i)} className="text-gray-300 hover:text-indigo-500"><Icon name="Edit" size={16}/></button>
                                         <button onClick={()=>handleSmartDelete(i)} className="text-gray-300 hover:text-red-500"><Icon name="Trash" size={16}/></button>
                                     </div>
                                 </div>
-                                {(i.qty || i.price || i.expiry || tab === 'inv') && (
-                                    <div className="flex gap-3 text-[10px] text-gray-500 border-t pt-1 mt-1 items-center">
+                                {(i.qty || i.price || i.expiry || tab === 'inv' || formatUnits(i)) && (
+                                    <div className="flex gap-3 text-[10px] text-gray-500 border-t pt-1 mt-1 items-center flex-wrap">
                                         {tab === 'inv' ? (
-                                            <label className="flex items-center gap-1 flex-1">
-                                                <span className="text-gray-400 shrink-0">Cantidad:</span>
-                                                <input
-                                                    value={i.qty || ''}
-                                                    placeholder="ej: 2 kg"
-                                                    onClick={e=>e.stopPropagation()}
-                                                    onChange={e=>setItems(items.map(x=>x.id===i.id?{...x,qty:e.target.value}:x))}
-                                                    className="bg-gray-100 px-1.5 py-0.5 rounded outline-none border border-transparent focus:border-indigo-300 w-28 text-[10px]"
-                                                />
-                                            </label>
+                                            (i.unitCount || i.unitSize) ? (
+                                                <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium" onClick={e=>{e.stopPropagation(); openEdit(i);}}>{formatUnits(i)}</span>
+                                            ) : (
+                                                <label className="flex items-center gap-1 flex-1">
+                                                    <span className="text-gray-400 shrink-0">Cantidad:</span>
+                                                    <input
+                                                        value={i.qty || ''}
+                                                        placeholder="ej: 2 kg"
+                                                        onClick={e=>e.stopPropagation()}
+                                                        onChange={e=>setItems(items.map(x=>x.id===i.id?{...x,qty:e.target.value}:x))}
+                                                        className="bg-gray-100 px-1.5 py-0.5 rounded outline-none border border-transparent focus:border-indigo-300 w-28 text-[10px]"
+                                                    />
+                                                </label>
+                                            )
                                         ) : (
-                                            i.qty && <span className="bg-gray-100 px-1 rounded">{i.qty}</span>
+                                            formatUnits(i) && <span className="bg-gray-100 px-1 rounded">{formatUnits(i)}</span>
                                         )}
                                         {i.price && <span className="bg-green-50 text-green-700 px-1 rounded">${i.price}</span>}
                                         {i.expiry && <span className="flex items-center gap-1 bg-red-50 text-red-600 px-1 rounded"><Icon name="Clock" size={10}/> {i.expiry}</span>}
@@ -1012,10 +1060,50 @@
                                             </div>
                                         </div>
                                         <input value={editItem.name} onChange={e=>setEditItem({...editItem, name:e.target.value})} className="w-full border p-2 rounded-lg font-bold" placeholder="Nombre"/>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div><label className="text-[10px] font-bold text-gray-500">Cantidad</label><input value={editItem.qty} onChange={e=>setEditItem({...editItem, qty:e.target.value})} className="w-full border p-2 rounded-lg"/></div>
-                                            <div><label className="text-[10px] font-bold text-gray-500">Precio</label><input type="number" value={editItem.price} onChange={e=>setEditItem({...editItem, price:e.target.value})} className="w-full border p-2 rounded-lg"/></div>
+                                        <div className="border rounded-lg p-2 bg-gray-50">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="text-[10px] font-bold text-gray-500">Cantidad</label>
+                                                <button type="button" onClick={() => setEditItem({...editItem, _structured: !editItem._structured && !(editItem.unitCount || editItem.unitSize)})} className="text-[10px] text-indigo-500 underline">
+                                                    {(editItem._structured || editItem.unitCount || editItem.unitSize) ? 'Modo simple' : 'Modo estructurado'}
+                                                </button>
+                                            </div>
+                                            {(editItem._structured || editItem.unitCount || editItem.unitSize) ? (
+                                                <div>
+                                                    <div className="flex items-center gap-1">
+                                                        <input type="number" inputMode="numeric" min="0" placeholder="3" value={editItem.unitCount ?? ''} onChange={e=>setEditItem({...editItem, unitCount: e.target.value === '' ? null : Number(e.target.value)})} className="border p-2 rounded-lg w-16 text-center"/>
+                                                        <span className="text-gray-400">×</span>
+                                                        <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="250" value={editItem.unitSize ?? ''} onChange={e=>setEditItem({...editItem, unitSize: e.target.value === '' ? null : Number(e.target.value)})} className="border p-2 rounded-lg flex-1 text-center"/>
+                                                        <select value={editItem.unitType || ''} onChange={e=>setEditItem({...editItem, unitType: e.target.value})} className="border p-2 rounded-lg bg-white">
+                                                            <option value="">—</option>
+                                                            <optgroup label="Peso">
+                                                                <option value="g">g</option>
+                                                                <option value="kg">kg</option>
+                                                                <option value="mg">mg</option>
+                                                                <option value="oz">oz</option>
+                                                                <option value="lb">lb</option>
+                                                            </optgroup>
+                                                            <optgroup label="Volumen">
+                                                                <option value="ml">ml</option>
+                                                                <option value="l">l</option>
+                                                                <option value="oz_fl">oz fl</option>
+                                                            </optgroup>
+                                                            <optgroup label="Conteo">
+                                                                <option value="pz">pz</option>
+                                                                <option value="pkg">pkg</option>
+                                                                <option value="bolsa">bolsa</option>
+                                                                <option value="lata">lata</option>
+                                                                <option value="caja">caja</option>
+                                                                <option value="botella">botella</option>
+                                                            </optgroup>
+                                                        </select>
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-500 mt-1 text-center">{formatUnits(editItem) || 'Captura número × tamaño + unidad'}</p>
+                                                </div>
+                                            ) : (
+                                                <input value={editItem.qty} placeholder="ej: 2 kg" onChange={e=>setEditItem({...editItem, qty:e.target.value})} className="w-full border p-2 rounded-lg"/>
+                                            )}
                                         </div>
+                                        <div><label className="text-[10px] font-bold text-gray-500">Precio</label><input type="number" inputMode="decimal" value={editItem.price} onChange={e=>setEditItem({...editItem, price:e.target.value})} className="w-full border p-2 rounded-lg"/></div>
                                         <div className="grid grid-cols-2 gap-2">
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-500">Categoría</label>

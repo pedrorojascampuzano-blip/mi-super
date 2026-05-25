@@ -35,6 +35,9 @@ create table if not exists items (
   price         numeric,
   expiry        date,
   photo_url     text,
+  unit_count    integer,
+  unit_size     numeric,
+  unit_type     text,
   updated_by    uuid,
   updated_at    timestamptz default now()
 );
