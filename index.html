@@ -232,6 +232,7 @@
                     id: r.id, name: r.name, places: r.places || ['General'], category: r.category || 'Otros',
                     status: r.status, isEssential: !!r.is_essential, lastBought: r.last_bought,
                     qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || '',
+                    photoUrl: r.photo_url || '',
                     updatedBy: r.updated_by, updatedAt: r.updated_at
                 });
 
@@ -308,7 +309,8 @@
                                 category: i.category, status: i.status, is_essential: !!i.isEssential,
                                 last_bought: i.lastBought || null, qty: i.qty || '',
                                 price: i.price === '' || i.price == null ? null : Number(i.price),
-                                expiry: i.expiry || null
+                                expiry: i.expiry || null,
+                                photo_url: i.photoUrl || null
                             }));
                             const { error } = await sb.from('items').upsert(rows);
                             if (error) throw error;
@@ -745,7 +747,7 @@
                 if (existing) {
                     setItems(items.map(i => i.id === existing.id ? { ...i, status: tab === 'inv' ? 'stocked' : 'needed' } : i));
                 } else {
-                    setItems([...items, { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false }]);
+                    setItems([...items, { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false, photoUrl: '' }]);
                 }
                 setName(''); setSelTags(['General']);
             };
@@ -766,6 +768,20 @@
             };
             const openEdit = (item) => { setEditItem({...item}); setModal('edit'); };
             const saveEdit = () => { setItems(items.map(i => i.id === editItem.id ? editItem : i)); setModal(null); setEditItem(null); };
+
+            // ─── Item photo upload (Supabase Storage bucket: item-photos) ───
+            const handleItemPhotoUpload = async (file) => {
+                if (!file || !editItem) return;
+                if (!cloudMode || !sbRef.current) { alert('Inicia sesión / únete a un grupo para subir fotos.'); return; }
+                const sb = sbRef.current;
+                const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+                const path = `${groupId}/${editItem.id}-${Date.now()}.${ext}`;
+                const { error } = await sb.storage.from('item-photos').upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type });
+                if (error) { console.error('photo upload', error); alert('Subida falló: ' + error.message); return; }
+                const { data: pub } = sb.storage.from('item-photos').getPublicUrl(path);
+                setEditItem({ ...editItem, photoUrl: pub.publicUrl });
+            };
+            const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
             const displayItems = () => {
                 if(tab==='shop') return items.filter(i => (i.status==='needed'||i.status==='cart') && (filter==='Todos'||i.places.includes(filter)||i.places.includes('General')));
@@ -887,6 +903,9 @@
                                         if(i.status==='inactive') setItems(items.map(x=>x.id===i.id?{...x,status:'stocked'}:x)); // Reactivar
                                     }}>
                                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${i.status==='cart'?'bg-green-500 border-green-500':'border-gray-300'}`}>{i.status==='cart'&&<Icon name="Check" size={12} className="text-white"/>}</div>
+                                        {i.photoUrl && (
+                                            <img src={i.photoUrl} alt={i.name} loading="lazy" className="w-10 h-10 rounded-lg object-cover border shrink-0"/>
+                                        )}
                                         <div className="min-w-0">
                                             <p className={`font-semibold text-sm ${i.status==='cart'&&'line-through'} flex items-center gap-1`}>
                                                 {i.name}
@@ -976,6 +995,22 @@
 
                                 {modal === 'edit' && editItem && (
                                     <div className="space-y-3">
+                                        <div className="flex items-center gap-3">
+                                            {editItem.photoUrl ? (
+                                                <img src={editItem.photoUrl} alt={editItem.name} className="w-20 h-20 rounded-xl object-cover border"/>
+                                            ) : (
+                                                <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-300"><Icon name="Camera"/></div>
+                                            )}
+                                            <div className="flex flex-col gap-2 flex-1">
+                                                <label className="bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded-lg text-center cursor-pointer">
+                                                    {editItem.photoUrl ? 'Cambiar foto' : 'Tomar foto'}
+                                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleItemPhotoUpload(f); e.target.value=''; }}/>
+                                                </label>
+                                                {editItem.photoUrl && (
+                                                    <button type="button" onClick={removeItemPhoto} className="text-[11px] text-gray-500 underline">Quitar foto</button>
+                                                )}
+                                            </div>
+                                        </div>
                                         <input value={editItem.name} onChange={e=>setEditItem({...editItem, name:e.target.value})} className="w-full border p-2 rounded-lg font-bold" placeholder="Nombre"/>
                                         <div className="grid grid-cols-2 gap-2">
                                             <div><label className="text-[10px] font-bold text-gray-500">Cantidad</label><input value={editItem.qty} onChange={e=>setEditItem({...editItem, qty:e.target.value})} className="w-full border p-2 rounded-lg"/></div>

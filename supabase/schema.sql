@@ -34,6 +34,7 @@ create table if not exists items (
   qty           text default '',
   price         numeric,
   expiry        date,
+  photo_url     text,
   updated_by    uuid,
   updated_at    timestamptz default now()
 );
