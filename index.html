@@ -813,12 +813,34 @@
                 } catch (e) { console.error('photo upload', e); alert('Subida falló: ' + e.message); }
             };
             // From inventory card — patches the live items array (and DB via diff effect).
+            // If the item still lacks size/unit info, also runs vision to enrich those
+            // fields without overwriting a name the user already typed.
             const handleQuickPhoto = async (item, file) => {
                 if (!file) return;
+                let url;
                 try {
-                    const url = await uploadItemPhoto(item, file);
+                    url = await uploadItemPhoto(item, file);
                     setItems(prev => prev.map(x => x.id === item.id ? { ...x, photoUrl: url } : x));
-                } catch (e) { console.error('quick photo', e); alert('Foto no subió: ' + e.message); }
+                } catch (e) { console.error('quick photo', e); alert('Foto no subió: ' + e.message); return; }
+
+                const needsEnrich = !item.unitSize && !item.unitCount;
+                if (!needsEnrich) return;
+                try {
+                    const enriched = await identifyItemFromPhoto(url);
+                    setItems(prev => prev.map(x => x.id === item.id ? (() => {
+                        const next = {
+                            ...x,
+                            // never overwrite a name the user typed; only fill if blank
+                            name: x.name && !x.name.startsWith('Identificando') && !x.name.startsWith('Sin identificar') ? x.name : (enriched.name || x.name),
+                            category: x.category && x.category !== 'Otros' ? x.category : enriched.category,
+                            unitCount: x.unitCount ?? enriched.unitCount,
+                            unitSize:  x.unitSize  ?? enriched.unitSize,
+                            unitType:  x.unitType  || enriched.unitType
+                        };
+                        next.expiryType = next.expiryType || inferExpiryType(next) || '';
+                        return next;
+                    })() : x));
+                } catch (e) { console.error('quick photo enrich', e); }
             };
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
