@@ -34,6 +34,7 @@ create table if not exists items (
   qty           text default '',
   price         numeric,
   expiry        date,
+  expiry_type   text check (expiry_type is null or expiry_type in ('strict','best_before')),
   photo_url     text,
   unit_count    integer,
   unit_size     numeric,

@@ -239,6 +239,7 @@
                     id: r.id, name: r.name, places: r.places || ['General'], category: r.category || 'Otros',
                     status: r.status, isEssential: !!r.is_essential, lastBought: r.last_bought,
                     qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || '',
+                    expiryType: r.expiry_type || '',
                     photoUrl: r.photo_url || '',
                     unitCount: r.unit_count ?? null, unitSize: r.unit_size ?? null, unitType: r.unit_type || '',
                     purchaseAt: r.purchase_at || '',
@@ -323,7 +324,8 @@
                                 unit_count: i.unitCount == null || i.unitCount === '' ? null : Number(i.unitCount),
                                 unit_size:  i.unitSize  == null || i.unitSize  === '' ? null : Number(i.unitSize),
                                 unit_type:  i.unitType  || null,
-                                purchase_at: i.purchaseAt || null
+                                purchase_at: i.purchaseAt || null,
+                                expiry_type: i.expiryType || null
                             }));
                             const { error } = await sb.from('items').upsert(rows);
                             if (error) throw error;
@@ -760,7 +762,9 @@
                 if (existing) {
                     setItems(items.map(i => i.id === existing.id ? { ...i, status: tab === 'inv' ? 'stocked' : 'needed' } : i));
                 } else {
-                    setItems([...items, { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false, photoUrl: '', unitCount: null, unitSize: null, unitType: '', purchaseAt: '' }]);
+                    const newItem = { id: newId(), name, places: selTags, status: tab === 'inv' ? 'stocked' : 'needed', lastBought: tab === 'inv' ? todayISO() : null, qty: '', price: '', expiry: '', category: 'Otros', isEssential: false, photoUrl: '', unitCount: null, unitSize: null, unitType: '', purchaseAt: '', expiryType: '' };
+                    newItem.expiryType = inferExpiryType(newItem) || '';
+                    setItems([...items, newItem]);
                 }
                 setName(''); setSelTags(['General']);
             };
@@ -834,7 +838,8 @@
                     isEssential: false,
                     photoUrl: '',
                     unitCount: null, unitSize: null, unitType: '',
-                    purchaseAt: ''
+                    purchaseAt: '',
+                    expiryType: ''
                 };
                 setItems(prev => [...prev, placeholder]);
 
@@ -851,14 +856,18 @@
 
                 try {
                     const enriched = await identifyItemFromPhoto(photoUrl);
-                    setItems(prev => prev.map(x => x.id === placeholderId ? {
-                        ...x,
-                        name: enriched.name || 'Sin identificar — toca para editar',
-                        category: enriched.category,
-                        unitCount: enriched.unitCount,
-                        unitSize:  enriched.unitSize,
-                        unitType:  enriched.unitType
-                    } : x));
+                    setItems(prev => prev.map(x => x.id === placeholderId ? (() => {
+                        const next = {
+                            ...x,
+                            name: enriched.name || 'Sin identificar — toca para editar',
+                            category: enriched.category,
+                            unitCount: enriched.unitCount,
+                            unitSize:  enriched.unitSize,
+                            unitType:  enriched.unitType
+                        };
+                        next.expiryType = inferExpiryType(next) || '';
+                        return next;
+                    })() : x));
                 } catch (e) {
                     console.error('vision identify', e);
                     setItems(prev => prev.map(x => x.id === placeholderId ? { ...x, name: 'Sin identificar — toca para editar' } : x));
@@ -909,6 +918,40 @@ Reglas:
                 };
             };
 
+            // ─── Expiry strictness classifier ───
+            // Decide if a product's expiry date is "strict" (food-safety risk
+            // past date — meat, dairy, fresh bread, opened mayo) or just a
+            // "best before" hint (spices, flours, vinegars, oils, honey, salt,
+            // sealed sauces). Helps avoid throwing away food that's still fine.
+            const inferExpiryType = (it) => {
+                const t = ((it.name || '') + ' ' + (it.category || '')).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
+                const strictHits = [
+                    'leche','yogurt','yoghurt','crema','queso fresco','queso panela','queso oaxaca','queso ricotta','cottage',
+                    'jamon','jamón','salchich','tocino','chorizo','pollo','carne','pescado','mariscos','camaron','atun fresco',
+                    'pan ','tortill','baguette','bolillo','muffin','pastel','panque','crepa',
+                    'mayonesa abierta','aderezo abierto','hummus abierto','pure abierto',
+                    'huevo','clara liquida',
+                    'fruta','manzana','platano','pera','sandia','melon','papaya','mango','uva','fresa','arandano','frambuesa',
+                    'verdura','lechuga','espinaca','jitomate','tomate fresco','cebolla fresca','aguacate','pepino','zanahoria',
+                    'tofu','tempeh','seitan','leche vegetal','leche de almendra abierta','leche de soya abierta'
+                ];
+                const bestBeforeHits = [
+                    'especia','sazonador','sal','azucar','mascabad','miel','vinagre','aceite','salsa de soya','soya','ponzu','mirin','teriyaki','salsa botanera','valentina','tajin','chamoy','chipotle','adobo','achiote',
+                    'pimient','paprika','comino','oregano','laurel','tomillo','romero','clavo','canela','curcuma','nuez moscada','jengibre en polvo','ajo en polvo','cebolla en polvo','furikake','togarashi','everything bagel','consome','caldo','msg','glutamato',
+                    'harina','maicena','levadura','royal','polvo para hornear','chia','linaza','semilla',
+                    'arroz','quinoa','mijo','frijol','garbanzo','lenteja','cebada','avena',
+                    'espagueti','pasta','fideo','panini','noodle',
+                    'cafe molido','cafe','te ','infusion','chocolate','cocoa',
+                    'mantequilla de mani','peanut butter','tahini','nutella','crema de cacahuate',
+                    'mermelada','jam ','jalea','compota',
+                    'salmas','pita','crisp','tostada','galleta','crackers','salada',
+                    'salsa de pescado','tiparos','soja','wasabi en polvo'
+                ];
+                for (const k of strictHits) if (t.includes(k)) return 'strict';
+                for (const k of bestBeforeHits) if (t.includes(k)) return 'best_before';
+                return null;
+            };
+
             // ─── Unit formatting (display "3×250 g" from structured fields) ───
             const formatUnits = (it) => {
                 const c = it.unitCount, s = it.unitSize, u = it.unitType;
@@ -929,6 +972,9 @@ Reglas:
                 return (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
             };
             const isExpired = (i) => i.expiry && i.expiry < todayStr();
+            const effectiveExpiryType = (i) => i.expiryType || inferExpiryType(i) || 'best_before';
+            const isCriticalExpired = (i) => isExpired(i) && effectiveExpiryType(i) === 'strict';
+            const isSoftExpired    = (i) => isExpired(i) && effectiveExpiryType(i) !== 'strict';
             const isStale = (i) => !i.lastBought || monthsBetween(i.lastBought, todayStr()) >= 6;
             const noPhoto = (i) => !i.photoUrl;
             const duplicateNameSet = React.useMemo(() => {
@@ -950,7 +996,7 @@ Reglas:
                 if(tab==='shop') base = items.filter(i => (i.status==='needed'||i.status==='cart') && (filter==='Todos'||i.places.includes(filter)||i.places.includes('General')));
                 else if(tab==='inv') {
                     if(invFilter === 'Agotados') base = items.filter(i => i.status==='inactive');
-                    else if(invFilter === 'MariKondo') base = items.filter(i => i.status==='stocked' && (isExpired(i) || isDuplicate(i) || isStale(i) || noPhoto(i)));
+                    else if(invFilter === 'MariKondo') base = items.filter(i => i.status==='stocked' && (isCriticalExpired(i) || isDuplicate(i) || isStale(i) || noPhoto(i) || isSoftExpired(i)));
                     else if(invFilter === 'Todos') base = items.filter(i => i.status==='stocked');
                     else base = items.filter(i => i.status==='stocked' && i.category === invFilter);
                 }
@@ -1117,7 +1163,7 @@ Reglas:
                         )}
 
                         {(() => { const renderItem = (i) => (
-                            <div key={i.id} className={`p-3 rounded-xl border flex flex-col gap-2 shadow-sm transition animate-enter bg-white ${i.status==='cart'?'bg-green-50 border-green-200 opacity-60':''} ${i.status==='inactive'?'opacity-70 bg-gray-50':''} ${isExpired(i)?'border-red-300':''}`}>
+                            <div key={i.id} className={`p-3 rounded-xl border flex flex-col gap-2 shadow-sm transition animate-enter bg-white ${i.status==='cart'?'bg-green-50 border-green-200 opacity-60':''} ${i.status==='inactive'?'opacity-70 bg-gray-50':''} ${isCriticalExpired(i)?'border-red-400':''} ${isSoftExpired(i)?'border-amber-300':''}`}>
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3 overflow-hidden flex-1 cursor-pointer" onClick={()=>{
                                         if(tab==='shop') setItems(items.map(x=>x.id===i.id?{...x,status:i.status==='needed'?'cart':'needed'}:x));
@@ -1174,13 +1220,14 @@ Reglas:
                                             formatUnits(i) && <span className="bg-gray-100 px-1 rounded">{formatUnits(i)}</span>
                                         )}
                                         {i.price && <span className="bg-green-50 text-green-700 px-1 rounded">${i.price}</span>}
-                                        {i.expiry && <span className={`flex items-center gap-1 px-1 rounded ${isExpired(i)?'bg-red-100 text-red-700 font-bold':'bg-red-50 text-red-600'}`}><Icon name="Clock" size={10}/> {i.expiry}</span>}
+                                        {i.expiry && <span className={`flex items-center gap-1 px-1 rounded ${isCriticalExpired(i)?'bg-red-100 text-red-700 font-bold':isSoftExpired(i)?'bg-amber-100 text-amber-700':'bg-red-50 text-red-600'}`} title={isCriticalExpired(i)?'Caducado — tirar':isSoftExpired(i)?'Consumo preferente vencido — revisa visualmente, aún puede estar bien':''}><Icon name="Clock" size={10}/> {i.expiry}{isSoftExpired(i)?' (rec.)':''}</span>}
                                         {i.purchaseAt && <span className="bg-blue-50 text-blue-700 px-1 rounded text-[10px]">{i.purchaseAt}</span>}
-                                        {tab==='inv' && (isExpired(i) || isDuplicate(i) || noPhoto(i)) && (
-                                            <span className="text-pink-600 text-[10px] ml-auto flex items-center gap-0.5" title={`${isExpired(i)?'Caducado':''}${isDuplicate(i)?' Duplicado':''}${noPhoto(i)?' Sin foto':''}`}>
-                                                {isExpired(i) && '⚠'}
-                                                {isDuplicate(i) && '⧉'}
-                                                {noPhoto(i) && '📷'}
+                                        {tab==='inv' && (isCriticalExpired(i) || isSoftExpired(i) || isDuplicate(i) || noPhoto(i)) && (
+                                            <span className="text-[10px] ml-auto flex items-center gap-0.5" title={`${isCriticalExpired(i)?'Caducado (peligroso) ':''}${isSoftExpired(i)?'Caducado (recomendación) ':''}${isDuplicate(i)?'Duplicado ':''}${noPhoto(i)?'Sin foto':''}`}>
+                                                {isCriticalExpired(i) && <span className="text-red-600">⚠</span>}
+                                                {isSoftExpired(i) && <span className="text-amber-600">⏰</span>}
+                                                {isDuplicate(i) && <span className="text-pink-600">⧉</span>}
+                                                {noPhoto(i) && <span className="text-gray-400">📷</span>}
                                             </span>
                                         )}
                                     </div>
@@ -1300,7 +1347,15 @@ Reglas:
                                                 <label className="text-[10px] font-bold text-gray-500">Categoría</label>
                                                 <select value={editItem.category} onChange={e=>setEditItem({...editItem, category:e.target.value})} className="w-full border p-2 rounded-lg bg-white">{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>
                                             </div>
-                                            <div><label className="text-[10px] font-bold text-gray-500">Caducidad</label><input type="date" value={editItem.expiry} onChange={e=>setEditItem({...editItem, expiry:e.target.value})} className="w-full border p-2 rounded-lg"/></div>
+                                            <div>
+                                                <label className="text-[10px] font-bold text-gray-500">Caducidad</label>
+                                                <input type="date" value={editItem.expiry} onChange={e=>setEditItem({...editItem, expiry:e.target.value})} className="w-full border p-2 rounded-lg"/>
+                                                <select value={editItem.expiryType || ''} onChange={e=>setEditItem({...editItem, expiryType: e.target.value})} className="w-full border p-1 rounded mt-1 text-[10px] bg-white">
+                                                    <option value="">— tipo (auto: {inferExpiryType(editItem) || 'best_before'}) —</option>
+                                                    <option value="strict">Importante (tirar al caducar)</option>
+                                                    <option value="best_before">Recomendación (consumo preferente)</option>
+                                                </select>
+                                            </div>
                                         </div>
                                         <div><label className="text-[10px] font-bold text-gray-500">Lugares (separados por coma)</label><input value={editItem.places.join(', ')} onChange={e=>setEditItem({...editItem, places:e.target.value.split(',').map(s=>s.trim())})} className="w-full border p-2 rounded-lg"/></div>
                                         <div>
