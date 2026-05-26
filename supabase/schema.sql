@@ -38,6 +38,7 @@ create table if not exists items (
   unit_count    integer,
   unit_size     numeric,
   unit_type     text,
+  purchase_at   text,
   updated_by    uuid,
   updated_at    timestamptz default now()
 );
