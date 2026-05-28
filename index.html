@@ -792,15 +792,68 @@
             };
 
             // ─── Item photo upload (Supabase Storage bucket: item-photos) ───
+            // Client-side compress: iPhones produce 8-12MB HEIC files that often
+            // fail upload (size limit / HEIC mime). Resize to max 1600px and
+            // re-encode as JPEG q=0.85 → ~200-500KB, also normalizes HEIC→JPEG.
+            const compressImage = (file) => new Promise((resolve, reject) => {
+                if (!file.type.startsWith('image/')) return resolve(file);
+                const img = new Image();
+                const reader = new FileReader();
+                reader.onload = e => { img.src = e.target.result; };
+                reader.onerror = () => reject(new Error('No se pudo leer la foto'));
+                img.onload = () => {
+                    const MAX = 1600;
+                    let { width: w, height: h } = img;
+                    if (w > MAX || h > MAX) {
+                        const r = Math.min(MAX / w, MAX / h);
+                        w = Math.round(w * r); h = Math.round(h * r);
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    canvas.toBlob(blob => {
+                        if (!blob) return reject(new Error('No se pudo comprimir la foto'));
+                        // Stamp it as a File so .name and .type survive
+                        resolve(new File([blob], (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }));
+                    }, 'image/jpeg', 0.85);
+                };
+                img.onerror = () => reject(new Error('No se pudo decodificar la foto (HEIC sin convertir?)'));
+                reader.readAsDataURL(file);
+            });
+
             // Core uploader: works for any item, not just the one in the edit modal.
             // Returns the public URL on success, throws on failure.
+            // Auto-retries once with re-auth if storage returns 401/403 (session expired).
             const uploadItemPhoto = async (item, file) => {
                 if (!cloudMode || !sbRef.current) throw new Error('Sin sesión / grupo — no se puede subir.');
                 const sb = sbRef.current;
-                const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().slice(0, 6);
+
+                // Compress before upload (HEIC→JPEG, big→1600px)
+                let payload;
+                try {
+                    payload = await compressImage(file);
+                } catch (e) {
+                    console.warn('compress failed, uploading original', e);
+                    payload = file;
+                }
+
+                const ext = (payload.type && payload.type.startsWith('image/')) ? payload.type.split('/')[1].split('+')[0].slice(0, 6) : 'jpg';
                 const path = `${groupId}/${item.id}-${Date.now()}.${ext}`;
-                const { error } = await sb.storage.from('item-photos').upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type });
-                if (error) throw error;
+
+                const doUpload = () => sb.storage.from('item-photos').upload(path, payload, { upsert: true, cacheControl: '3600', contentType: payload.type || 'image/jpeg' });
+
+                let { error } = await doUpload();
+                // Auth recovery: re-auth and retry once if session is gone
+                if (error && /401|403|auth|jwt|unauthor/i.test(String(error.message || error.statusCode || ''))) {
+                    console.warn('upload auth failed, re-auth + retry', error);
+                    try { await sb.auth.signInAnonymously(); } catch (e) { console.warn('re-auth failed', e); }
+                    ({ error } = await doUpload());
+                }
+                if (error) {
+                    const detail = [error.message, error.statusCode, error.error].filter(Boolean).join(' · ');
+                    console.error('upload failed', { error, path, size: payload.size, type: payload.type });
+                    throw new Error(detail || 'Upload falló');
+                }
                 const { data: pub } = sb.storage.from('item-photos').getPublicUrl(path);
                 return pub.publicUrl;
             };
