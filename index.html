@@ -898,9 +898,16 @@
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
             // ─── "Solo foto" flow: create item from photo, auto-fill via Vision ───
-            const handlePhotoOnlyAdd = async (file) => {
-                if (!file) return;
-                if (!cloudMode || !sbRef.current) { alert('Inicia sesión / únete a un grupo para usar Auto-foto.'); return; }
+            // Returns { ok: true } on success, { ok: false, reason } on failure.
+            // In silent mode (used by bulk), errors are NOT alerted; the caller
+            // aggregates and reports a summary at the end.
+            const handlePhotoOnlyAdd = async (file, opts = {}) => {
+                const { silent = false } = opts;
+                if (!file) return { ok: false, reason: 'no-file' };
+                if (!cloudMode || !sbRef.current) {
+                    if (!silent) alert('Inicia sesión / únete a un grupo para usar Auto-foto.');
+                    return { ok: false, reason: 'no-session' };
+                }
                 const placeholderId = newId();
                 const placeholder = {
                     id: placeholderId,
@@ -924,9 +931,9 @@
                     setItems(prev => prev.map(x => x.id === placeholderId ? { ...x, photoUrl } : x));
                 } catch (e) {
                     console.error('photo-only upload', e);
-                    alert('Foto no subió: ' + e.message);
+                    if (!silent) alert('Foto no subió: ' + e.message);
                     setItems(prev => prev.filter(x => x.id !== placeholderId));
-                    return;
+                    return { ok: false, reason: 'upload', error: e.message };
                 }
 
                 try {
@@ -943,11 +950,43 @@
                         next.expiryType = inferExpiryType(next) || '';
                         return next;
                     })() : x));
+                    return { ok: true, identified: true };
                 } catch (e) {
                     console.error('vision identify', e);
                     setItems(prev => prev.map(x => x.id === placeholderId ? { ...x, name: 'Sin identificar — toca para editar' } : x));
-                    setResult('Foto subida pero no se pudo identificar (' + e.message + '). Edita manual.');
+                    if (!silent) setResult('Foto subida pero no se pudo identificar (' + e.message + '). Edita manual.');
+                    return { ok: true, identified: false, reason: 'vision', error: e.message };
                 }
+            };
+
+            // ─── Bulk photo flow: multi-select de la galería del iPhone ───
+            // Procesa en serie (evita rate limits de Vision API y Storage),
+            // muestra progreso "subiendo i/N", reporta resumen al final.
+            const handleBulkPhotoAdd = async (files) => {
+                const list = Array.from(files || []);
+                if (!list.length) return;
+                if (!cloudMode || !sbRef.current) { alert('Inicia sesión / únete a un grupo para subir fotos.'); return; }
+                if (list.length === 1) return handlePhotoOnlyAdd(list[0]);
+
+                let okUploaded = 0, okIdentified = 0, failed = 0;
+                const failures = [];
+                for (let i = 0; i < list.length; i++) {
+                    setResult('Subiendo ' + (i + 1) + ' / ' + list.length + '…');
+                    const res = await handlePhotoOnlyAdd(list[i], { silent: true });
+                    if (res.ok) {
+                        okUploaded++;
+                        if (res.identified) okIdentified++;
+                    } else {
+                        failed++;
+                        failures.push((list[i].name || 'foto') + ': ' + (res.error || res.reason));
+                    }
+                }
+                let summary = okUploaded + '/' + list.length + ' subidas';
+                if (okIdentified < okUploaded) summary += ' · ' + (okUploaded - okIdentified) + ' sin identificar (toca para editar)';
+                if (failed) summary += ' · ' + failed + ' fallaron';
+                setResult(summary);
+                if (failed) console.error('bulk upload failures', failures);
+                setTimeout(() => setResult(null), 6000);
             };
 
             // ─── Vision auto-fill: photo URL -> {name, category, unitCount, unitSize, unitType} ───
@@ -1159,9 +1198,9 @@ Reglas:
                         <div className="bg-white/10 backdrop-blur p-2 rounded-xl border border-white/20">
                             <div className="flex gap-2 mb-2 items-center">
                                 <input value={name} onChange={e=>setName(e.target.value)} placeholder={tab==='inv'?"Agregar a Casa...":"¿Qué falta?"} className="bg-transparent w-full text-white placeholder-indigo-200 outline-none font-medium"/>
-                                <label className="bg-emerald-400 text-emerald-900 p-2 rounded-lg cursor-pointer flex items-center" title="Auto-llena con foto">
+                                <label className="bg-emerald-400 text-emerald-900 p-2 rounded-lg cursor-pointer flex items-center" title="Tomar foto o elegir varias del rollo">
                                     <Icon name="Camera" size={18}/>
-                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handlePhotoOnlyAdd(f); e.target.value=''; }}/>
+                                    <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
                                 </label>
                                 <button onClick={addItem} disabled={!name} className="bg-white text-indigo-600 p-2 rounded-lg disabled:opacity-40"><Icon name="Plus"/></button>
                             </div>
