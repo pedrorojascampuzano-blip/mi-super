@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 const CACHE = 'mi-super-v20';
-=======
-const CACHE = 'mi-super-v17';
->>>>>>> parent of d07dd3d (Revert "Use extra_photo_urls column for multi-photo galleries")
 const PRECACHE = [
   './',
   './index.html',
