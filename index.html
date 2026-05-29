@@ -243,7 +243,6 @@
                     qty: r.qty || '', price: r.price ?? '', expiry: r.expiry || '',
                     expiryType: r.expiry_type || '',
                     photoUrl: r.photo_url || '',
-                    extraPhotoUrls: r.extra_photo_urls || [],
                     unitCount: r.unit_count ?? null, unitSize: r.unit_size ?? null, unitType: r.unit_type || '',
                     purchaseAt: r.purchase_at || '',
                     updatedBy: r.updated_by, updatedAt: r.updated_at
@@ -324,7 +323,6 @@
                                 price: i.price === '' || i.price == null ? null : Number(i.price),
                                 expiry: i.expiry || null,
                                 photo_url: i.photoUrl || null,
-                                extra_photo_urls: i.extraPhotoUrls || [],
                                 unit_count: i.unitCount == null || i.unitCount === '' ? null : Number(i.unitCount),
                                 unit_size:  i.unitSize  == null || i.unitSize  === '' ? null : Number(i.unitSize),
                                 unit_type:  i.unitType  || null,
@@ -902,38 +900,31 @@
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
             // ─── View modal: tap thumbnail → detail con foto grande + galería + add foto ───
-            // Lee extra_photo_urls del item (poblado por upload anterior + migration).
-            // No depende de storage.list() — esa requiere policy especial que tuvimos
-            // problemas para configurar; en su lugar guardamos las URLs en la columna.
-            const openView = (item) => {
+            const openView = async (item) => {
                 setViewItem(item);
-                // Galería = todas las URLs únicas del item (principal + extras).
-                const all = [...(item.extraPhotoUrls || [])];
-                if (item.photoUrl && !all.includes(item.photoUrl)) all.unshift(item.photoUrl);
-                setViewItemPhotos(all);
+                setViewItemPhotos(item.photoUrl ? [item.photoUrl] : []);
                 setModal('view');
+                if (!cloudMode || !sbRef.current) return;
+                try {
+                    const sb = sbRef.current;
+                    const { data, error } = await sb.storage.from('item-photos').list(groupId, { limit: 100, sortBy: { column: 'created_at', order: 'asc' }});
+                    if (error || !data) return;
+                    const urls = data
+                        .filter(f => f.name && f.name.startsWith(item.id + '-'))
+                        .map(f => sb.storage.from('item-photos').getPublicUrl(`${groupId}/${f.name}`).data.publicUrl);
+                    if (urls.length) setViewItemPhotos(urls);
+                } catch (e) { console.error('list item photos', e); }
             };
 
-            // Upload extra foto al MISMO item: sube al bucket + agrega URL a la columna
-            // extra_photo_urls + actualiza state local. Persiste sin storage.list().
+            // Upload extra foto al MISMO item (mismo path pattern <group>/<item_id>-<ts>.jpg)
             const handleAddItemPhoto = async (file) => {
                 if (!viewItem || !file) return;
                 try {
                     const url = await uploadItemPhoto(viewItem, file);
-                    const newExtras = [...(viewItem.extraPhotoUrls || []), url];
-                    const patch = { extraPhotoUrls: newExtras };
-                    if (!viewItem.photoUrl) patch.photoUrl = url;
-
-                    // Persistir a Supabase (la columna extra_photo_urls)
-                    if (cloudMode && sbRef.current) {
-                        const dbPatch = { extra_photo_urls: newExtras };
-                        if (!viewItem.photoUrl) dbPatch.photo_url = url;
-                        await sbRef.current.from('items').update(dbPatch).eq('id', viewItem.id);
+                    if (!viewItem.photoUrl) {
+                        setItems(prev => prev.map(x => x.id === viewItem.id ? { ...x, photoUrl: url } : x));
+                        setViewItem({ ...viewItem, photoUrl: url });
                     }
-
-                    // Actualizar state local
-                    setItems(prev => prev.map(x => x.id === viewItem.id ? { ...x, ...patch } : x));
-                    setViewItem(prev => prev ? { ...prev, ...patch } : prev);
                     setViewItemPhotos(prev => [...prev, url]);
                 } catch (e) {
                     console.error('add item photo', e);
