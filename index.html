@@ -901,6 +901,41 @@
             };
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
+            // ─── Edit modal photo gallery helpers ───
+            // Upload extra photo desde edit modal (mismo path pattern que viewItem add)
+            const editAddPhoto = async (file) => {
+                if (!editItem || !file) return;
+                try {
+                    const url = await uploadItemPhoto(editItem, file);
+                    const newExtras = [...(editItem.extraPhotoUrls || []), url];
+                    setEditItem({ ...editItem, extraPhotoUrls: newExtras, photoUrl: editItem.photoUrl || url });
+                } catch (e) {
+                    console.error('edit add photo', e);
+                    alert('Foto no subió: ' + e.message);
+                }
+            };
+            const editAddPhotos = async (files) => {
+                const list = Array.from(files || []);
+                for (let i = 0; i < list.length; i++) {
+                    setResult('Subiendo ' + (i+1) + '/' + list.length + '…');
+                    await editAddPhoto(list[i]);
+                }
+                setResult(null);
+            };
+            // Quitar foto del item (del array). Si era la principal, promueve la siguiente.
+            const editRemovePhoto = (url) => {
+                if (!editItem) return;
+                const newExtras = (editItem.extraPhotoUrls || []).filter(u => u !== url);
+                let newMain = editItem.photoUrl;
+                if (newMain === url) newMain = newExtras[0] || '';
+                setEditItem({ ...editItem, extraPhotoUrls: newExtras, photoUrl: newMain });
+            };
+            // Marcar una foto como la principal (la que se muestra como thumbnail)
+            const editSetMainPhoto = (url) => {
+                if (!editItem) return;
+                setEditItem({ ...editItem, photoUrl: url });
+            };
+
             // ─── View modal: tap thumbnail → detail con foto grande + galería + add foto ───
             // Lee extra_photo_urls del item (poblado por upload anterior + migration).
             // No depende de storage.list() — esa requiere policy especial que tuvimos
@@ -1438,22 +1473,41 @@ Reglas:
 
                                 {modal === 'edit' && editItem && (
                                     <div className="space-y-3">
-                                        <div className="flex items-center gap-3">
-                                            {editItem.photoUrl ? (
-                                                <img src={editItem.photoUrl} alt={editItem.name} className="w-20 h-20 rounded-xl object-cover border"/>
-                                            ) : (
-                                                <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-300"><Icon name="Camera"/></div>
-                                            )}
-                                            <div className="flex flex-col gap-2 flex-1">
-                                                <label className="bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded-lg text-center cursor-pointer">
-                                                    {editItem.photoUrl ? 'Cambiar foto' : 'Tomar foto'}
-                                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleItemPhotoUpload(f); e.target.value=''; }}/>
-                                                </label>
-                                                {editItem.photoUrl && (
-                                                    <button type="button" onClick={removeItemPhoto} className="text-[11px] text-gray-500 underline">Quitar foto</button>
-                                                )}
-                                            </div>
-                                        </div>
+                                        {(() => {
+                                            const allPhotos = Array.from(new Set([
+                                                ...(editItem.photoUrl ? [editItem.photoUrl] : []),
+                                                ...(editItem.extraPhotoUrls || [])
+                                            ]));
+                                            return (
+                                                <div className="bg-gray-50 rounded-xl p-3">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-[10px] font-bold text-gray-500 uppercase">Fotos · {allPhotos.length}</span>
+                                                        <label className="bg-emerald-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer flex items-center gap-1 active:scale-95">
+                                                            <Icon name="Camera" size={12}/> + foto
+                                                            <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) editAddPhotos(fs); e.target.value=''; }}/>
+                                                        </label>
+                                                    </div>
+                                                    {allPhotos.length > 0 ? (
+                                                        <div className="grid grid-cols-3 gap-1.5">
+                                                            {allPhotos.map((url) => (
+                                                                <div key={url} className="relative aspect-square rounded-lg overflow-hidden border group">
+                                                                    <img src={url} className="w-full h-full object-cover"/>
+                                                                    {url === editItem.photoUrl && (
+                                                                        <span className="absolute top-0.5 left-0.5 bg-indigo-600 text-white text-[8px] font-bold px-1 py-0.5 rounded">PRINCIPAL</span>
+                                                                    )}
+                                                                    <button type="button" onClick={() => editRemovePhoto(url)} className="absolute top-0.5 right-0.5 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shadow-md active:scale-90" title="Quitar">×</button>
+                                                                    {url !== editItem.photoUrl && (
+                                                                        <button type="button" onClick={() => editSetMainPhoto(url)} className="absolute bottom-0.5 left-0.5 bg-white/90 text-indigo-600 text-[8px] font-bold px-1 py-0.5 rounded active:scale-95" title="Hacer principal">★ principal</button>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-[11px] text-gray-400 text-center py-3">Sin fotos · agrega frente, ingredientes, caducidad, etc.</p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                         <input value={editItem.name} onChange={e=>setEditItem({...editItem, name:e.target.value})} className="w-full border p-2 rounded-lg font-bold" placeholder="Nombre"/>
                                         <div className="border rounded-lg p-2 bg-gray-50">
                                             <div className="flex items-center justify-between mb-2">
