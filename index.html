@@ -97,6 +97,8 @@
             const [loading, setLoading] = useState(false);
             const [isListening, setIsListening] = useState(false);
             const [editItem, setEditItem] = useState(null);
+            const [viewItem, setViewItem] = useState(null);
+            const [viewItemPhotos, setViewItemPhotos] = useState([]);
             const [confirmData, setConfirmData] = useState({ isOpen: false, msg: '', action: null, altAction: null, altText: '' });
             const recognitionRef = useRef(null);
 
@@ -897,6 +899,48 @@
             };
             const removeItemPhoto = () => { if (editItem) setEditItem({ ...editItem, photoUrl: '' }); };
 
+            // ─── View modal: tap thumbnail → detail con foto grande + galería + add foto ───
+            const openView = async (item) => {
+                setViewItem(item);
+                setViewItemPhotos(item.photoUrl ? [item.photoUrl] : []);
+                setModal('view');
+                if (!cloudMode || !sbRef.current) return;
+                try {
+                    const sb = sbRef.current;
+                    const { data, error } = await sb.storage.from('item-photos').list(groupId, { limit: 100, sortBy: { column: 'created_at', order: 'asc' }});
+                    if (error || !data) return;
+                    const urls = data
+                        .filter(f => f.name && f.name.startsWith(item.id + '-'))
+                        .map(f => sb.storage.from('item-photos').getPublicUrl(`${groupId}/${f.name}`).data.publicUrl);
+                    if (urls.length) setViewItemPhotos(urls);
+                } catch (e) { console.error('list item photos', e); }
+            };
+
+            // Upload extra foto al MISMO item (mismo path pattern <group>/<item_id>-<ts>.jpg)
+            const handleAddItemPhoto = async (file) => {
+                if (!viewItem || !file) return;
+                try {
+                    const url = await uploadItemPhoto(viewItem, file);
+                    if (!viewItem.photoUrl) {
+                        setItems(prev => prev.map(x => x.id === viewItem.id ? { ...x, photoUrl: url } : x));
+                        setViewItem({ ...viewItem, photoUrl: url });
+                    }
+                    setViewItemPhotos(prev => [...prev, url]);
+                } catch (e) {
+                    console.error('add item photo', e);
+                    alert('Foto no subió: ' + e.message);
+                }
+            };
+            const handleAddItemPhotos = async (files) => {
+                const list = Array.from(files || []);
+                for (let i = 0; i < list.length; i++) {
+                    setResult('Subiendo ' + (i+1) + '/' + list.length + '…');
+                    await handleAddItemPhoto(list[i]);
+                }
+                setResult(list.length + ' foto(s) agregada(s)');
+                setTimeout(()=>setResult(null), 3000);
+            };
+
             // ─── "Solo foto" flow: create item from photo, auto-fill via Vision ───
             // Returns { ok: true } on success, { ok: false, reason } on failure.
             // In silent mode (used by bulk), errors are NOT alerted; the caller
@@ -1285,7 +1329,9 @@ Reglas:
                                     }}>
                                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${i.status==='cart'?'bg-green-500 border-green-500':'border-gray-300'}`}>{i.status==='cart'&&<Icon name="Check" size={12} className="text-white"/>}</div>
                                         {i.photoUrl && (
-                                            <img src={i.photoUrl} alt={i.name} loading="lazy" className="w-10 h-10 rounded-lg object-cover border shrink-0"/>
+                                            <img src={i.photoUrl} alt={i.name} loading="lazy"
+                                                onClick={e=>{e.stopPropagation(); openView(i);}}
+                                                className="w-10 h-10 rounded-lg object-cover border shrink-0 cursor-pointer active:opacity-70"/>
                                         )}
                                         <div className="min-w-0">
                                             <p className={`font-semibold text-sm ${i.status==='cart'&&'line-through'} flex items-center gap-1`}>
@@ -1493,6 +1539,54 @@ Reglas:
                                             <span className="text-sm font-bold text-yellow-800 flex items-center gap-1">Marcar Esencial <Icon name="Star" size={14}/></span>
                                         </div>
                                         <button onClick={saveEdit} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mt-2">Guardar Cambios</button>
+                                    </div>
+                                )}
+
+                                {modal === 'view' && viewItem && (
+                                    <div className="space-y-3 -m-2">
+                                        {viewItem.photoUrl ? (
+                                            <a href={viewItem.photoUrl} target="_blank" rel="noopener" className="block">
+                                                <img src={viewItem.photoUrl} alt={viewItem.name} className="w-full max-h-[45vh] object-contain rounded-xl bg-gray-100"/>
+                                            </a>
+                                        ) : (
+                                            <div className="w-full h-40 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-sm">Sin foto principal</div>
+                                        )}
+                                        <div className="px-1">
+                                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                                {viewItem.name}
+                                                {viewItem.isEssential && <Icon name="Star" size={16} className="text-yellow-400 fill-current"/>}
+                                            </h2>
+                                            <p className="text-xs text-gray-500 mt-0.5">{viewItem.category} · {viewItem.places.join(', ') || 'General'}</p>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5 px-1">
+                                            {formatUnits(viewItem) && <span className="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg text-xs font-medium">📦 {formatUnits(viewItem)}</span>}
+                                            {viewItem.qty && !formatUnits(viewItem) && <span className="bg-gray-100 px-2.5 py-1 rounded-lg text-xs">{viewItem.qty}</span>}
+                                            {viewItem.price && <span className="bg-green-50 text-green-700 px-2.5 py-1 rounded-lg text-xs">${viewItem.price}</span>}
+                                            {viewItem.expiry && <span className={`px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 ${isCriticalExpired(viewItem)?'bg-red-100 text-red-700 font-bold':isSoftExpired(viewItem)?'bg-amber-100 text-amber-700':'bg-red-50 text-red-600'}`}><Icon name="Clock" size={11}/> {viewItem.expiry}{isSoftExpired(viewItem)?' (rec.)':''}</span>}
+                                            {viewItem.purchaseAt && <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg text-xs">{viewItem.purchaseAt}</span>}
+                                        </div>
+                                        <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm">Editar item</button>
+
+                                        <div className="border-t pt-3 px-1">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <h3 className="font-bold text-xs text-gray-600 uppercase tracking-wider">Fotos · {viewItemPhotos.length}</h3>
+                                                <label className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1 active:scale-95 transition">
+                                                    <Icon name="Camera" size={13}/> + foto
+                                                    <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleAddItemPhotos(fs); e.target.value=''; }}/>
+                                                </label>
+                                            </div>
+                                            {viewItemPhotos.length > 0 ? (
+                                                <div className="grid grid-cols-3 gap-1.5">
+                                                    {viewItemPhotos.map((url, idx) => (
+                                                        <a key={url+idx} href={url} target="_blank" rel="noopener" className="aspect-square rounded-lg overflow-hidden border block">
+                                                            <img src={url} className="w-full h-full object-cover" loading="lazy"/>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-[11px] text-gray-400 text-center py-3">+ foto para agregar ingredientes, caducidad, marca, vista trasera...</p>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
 
