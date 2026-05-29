@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Mi Súper · Fix cache</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 40px; background: #f3f4f6; }
+    h1 { color: #4f46e5; }
+    pre { background: white; padding: 16px; border-radius: 8px; font-size: 12px; max-height: 300px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>🧹 Limpiando cache de Mi Súper…</h1>
+  <pre id="log">Iniciando…\n</pre>
+
+  <script>
+    const log = (m) => {
+      document.getElementById('log').textContent += m + '\n';
+      console.log(m);
+    };
+
+    (async () => {
+      try {
+        // 1. Unregister all service workers on this origin
+        if (navigator.serviceWorker) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          log('Service workers encontrados: ' + regs.length);
+          for (const r of regs) {
+            await r.unregister();
+            log('  ✓ Unregister: ' + (r.scope || r.active?.scriptURL || 'sw'));
+          }
+        }
+
+        // 2. Delete all caches
+        if (window.caches) {
+          const keys = await caches.keys();
+          log('Caches encontrados: ' + keys.length);
+          for (const k of keys) {
+            await caches.delete(k);
+            log('  ✓ Delete cache: ' + k);
+          }
+        }
+
+        // 3. Clear localStorage of cached SW state (preserve user data)
+        log('localStorage intacto (datos de usuario preservados).');
+
+        log('\n✅ Limpieza completa. Redirigiendo en 2s…');
+        setTimeout(() => {
+          location.href = './?clean=' + Date.now();
+        }, 2000);
+      } catch (e) {
+        log('❌ Error: ' + e.message);
+      }
+    })();
+  </script>
+</body>
+</html>
