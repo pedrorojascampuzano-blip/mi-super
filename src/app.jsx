@@ -35,7 +35,7 @@ const Icon = ({ name, size = 18, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '22';
+const APP_VERSION = '23';
 
 const hardRefresh = async () => {
     try {
@@ -1251,7 +1251,7 @@ Reglas:
                                 {groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}
                             </p>
                         )}
-                        <button onClick={hardRefresh} title="Limpiar cache y recargar" className="mt-1 text-[9px] text-indigo-200 hover:text-white flex items-center gap-1 active:scale-95 transition self-start">
+                        <button onClick={hardRefresh} title="Limpiar cache y recargar" className="mt-0.5 py-1 pr-2 text-[9px] text-indigo-200 hover:text-white flex items-center gap-1 active:scale-95 transition self-start">
                             <span>v{APP_VERSION}</span>
                             <span>·</span>
                             <span className="underline">↻ refrescar</span>
@@ -1267,7 +1267,7 @@ Reglas:
                 </div>
                 <div className="bg-white/10 backdrop-blur p-2 rounded-xl border border-white/20">
                     <div className="flex gap-2 mb-2 items-center">
-                        <input value={name} onChange={e=>setName(e.target.value)} placeholder={tab==='inv'?"Agregar a Casa...":"¿Qué falta?"} className="bg-transparent w-full text-white placeholder-indigo-200 outline-none font-medium"/>
+                        <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter' && !e.nativeEvent.isComposing) addItem(e); }} enterKeyHint="done" placeholder={tab==='inv'?"Agregar a Casa...":"¿Qué falta?"} className="bg-transparent w-full text-white placeholder-indigo-200 outline-none font-medium"/>
                         <label className="bg-emerald-400 text-emerald-900 p-2 rounded-lg cursor-pointer flex items-center" title="Tomar foto o elegir varias del rollo">
                             <Icon name="Camera" size={18}/>
                             <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
@@ -1289,17 +1289,17 @@ Reglas:
                 {tab==='shop' && (
                     <React.Fragment>
                         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                            <button onClick={()=>setFilter('Todos')} className={`px-3 py-1 rounded-full text-xs font-bold border ${filter==='Todos'?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>Todos</button>
-                            {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${filter===t?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>{t}</button>))}
+                            <button onClick={()=>setFilter('Todos')} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${filter==='Todos'?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>Todos</button>
+                            {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap ${filter===t?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>{t}</button>))}
                         </div>
                     </React.Fragment>
                 )}
                 {tab==='inv' && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 mb-2">
-                        <button onClick={()=>setInvFilter('Todos')} className={`px-3 py-1 rounded-full text-xs font-bold border ${invFilter==='Todos'?'bg-green-600 text-white':'bg-white text-gray-500'}`}>Todos</button>
-                        <button onClick={()=>setInvFilter('MariKondo')} className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${invFilter==='MariKondo'?'bg-pink-600 text-white border-pink-600':'bg-pink-50 text-pink-700 border-pink-200'}`}>✨ Mari Kondo</button>
-                        {categories.map(c=>(<button key={c} onClick={()=>setInvFilter(c)} className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${invFilter===c?'bg-green-600 text-white':'bg-white text-gray-500'}`}>{c}</button>))}
-                        <button onClick={()=>setInvFilter('Agotados')} className={`px-3 py-1 rounded-full text-xs font-bold border bg-gray-200 text-gray-600 whitespace-nowrap ${invFilter==='Agotados'?'border-gray-400 bg-gray-300':''}`}>Agotados</button>
+                        <button onClick={()=>setInvFilter('Todos')} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${invFilter==='Todos'?'bg-green-600 text-white':'bg-white text-gray-500'}`}>Todos</button>
+                        <button onClick={()=>setInvFilter('MariKondo')} className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap ${invFilter==='MariKondo'?'bg-pink-600 text-white border-pink-600':'bg-pink-50 text-pink-700 border-pink-200'}`}>✨ Mari Kondo</button>
+                        {categories.map(c=>(<button key={c} onClick={()=>setInvFilter(c)} className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap ${invFilter===c?'bg-green-600 text-white':'bg-white text-gray-500'}`}>{c}</button>))}
+                        <button onClick={()=>setInvFilter('Agotados')} className={`px-3 py-1.5 rounded-full text-xs font-bold border bg-gray-200 text-gray-600 whitespace-nowrap ${invFilter==='Agotados'?'border-gray-400 bg-gray-300':''}`}>Agotados</button>
                     </div>
                 )}
                 {(tab==='inv' || tab==='shop') && (
@@ -1327,7 +1327,14 @@ Reglas:
                     </div>
                 )}
 
-                {!list.length && <div className="text-center py-10 text-gray-400 text-sm">Nada por aquí 🦗</div>}
+                {!list.length && (
+                    <div className="text-center py-10 text-gray-400 text-sm">
+                        {searchQuery.trim() ? <>Nada coincide con “{searchQuery.trim()}”.</>
+                            : tab==='shop' ? <>Tu lista está vacía.<br/><span className="text-xs">Escribe arriba lo que falta o usa el micrófono.</span></>
+                            : tab==='hist' ? <>Aún no hay compras registradas.</>
+                            : <>Nada por aquí 🦗</>}
+                    </div>
+                )}
 
                 {invFilter==='MariKondo' && tab==='inv' && list.length > 0 && (
                     <div className="bg-pink-50 border border-pink-200 text-pink-800 text-xs rounded-lg px-3 py-2 mb-2">
@@ -1362,16 +1369,16 @@ Reglas:
                             <div className="flex gap-2 items-center">
                                 {/* BOTÓN MÁGICO PARA PASAR A LISTA */}
                                 {(tab==='inv' && i.status!=='inactive') && (
-                                    <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg"><Icon name="Plus" size={16}/></button>
+                                    <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} aria-label="Pasar a la lista" className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Icon name="Plus" size={16}/></button>
                                 )}
                                 {tab==='inv' && (
-                                    <label className={`p-1.5 rounded-lg cursor-pointer ${i.photoUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`} title={i.photoUrl ? 'Cambiar foto' : 'Tomar foto'} onClick={e=>e.stopPropagation()}>
+                                    <label className={`p-2 rounded-lg cursor-pointer ${i.photoUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`} title={i.photoUrl ? 'Cambiar foto' : 'Tomar foto'} onClick={e=>e.stopPropagation()}>
                                         <Icon name="Camera" size={16}/>
                                         <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleQuickPhoto(i, f); e.target.value=''; }}/>
                                     </label>
                                 )}
-                                <button onClick={()=>openEdit(i)} className="text-gray-300 hover:text-indigo-500"><Icon name="Edit" size={16}/></button>
-                                <button onClick={()=>handleSmartDelete(i)} className="text-gray-300 hover:text-red-500"><Icon name="Trash" size={16}/></button>
+                                <button onClick={()=>openEdit(i)} aria-label="Editar" className="p-2 -m-1 rounded-lg text-gray-400 hover:text-indigo-500 active:bg-gray-100"><Icon name="Edit" size={16}/></button>
+                                <button onClick={()=>handleSmartDelete(i)} aria-label="Borrar" className="p-2 -m-1 rounded-lg text-gray-400 hover:text-red-500 active:bg-gray-100"><Icon name="Trash" size={16}/></button>
                             </div>
                         </div>
                         {(i.qty || i.price || i.expiry || tab === 'inv' || formatUnits(i)) && (

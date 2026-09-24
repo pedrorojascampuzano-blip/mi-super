@@ -79,6 +79,6 @@ Para borrar/renombrar columnas, primero asegúrate de que ningún cliente activo
 
 ## Bumps de service worker
 
-Cada cambio que altera assets cacheados debe bumpear `CACHE` en `sw.js` (`mi-super-vN`). Sin bump, el SW viejo seguirá sirviendo HTML/JS viejo aunque el usuario recargue.
+Cada cambio que altera assets cacheados debe bumpear `APP_VERSION` en `src/app.jsx`; `npm run build` copia ese número a `CACHE` en `sw.js` (`mi-super-vN`) y `npm test` falla si no coinciden. Sin bump, el SW viejo seguirá sirviendo HTML/JS viejo aunque el usuario recargue.
 
 Cuando tengas dudas: bumpea.

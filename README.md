@@ -51,7 +51,16 @@ Las API keys de Gemini/DeepSeek se guardan localmente y solo se envían a Google
 
 ## Tech
 
-HTML + React + Tailwind en un solo archivo. Sin build step. Service worker para offline.
+React + Tailwind, sin framework de build. El código vive en `src/app.jsx` y se precompila a `app.js` (commiteado) con esbuild; GitHub Pages sirve la raíz de `main` tal cual. Service worker para offline.
+
+```bash
+npm ci                                   # una vez
+git config core.hooksPath .githooks      # una vez: el pre-commit recompila app.js al tocar src/
+npm run build                            # src/app.jsx → app.js y sincroniza la versión de sw.js
+npm test                                 # compilación + layout en emulación iPhone (Chrome headless)
+```
+
+Para publicar una versión: sube `APP_VERSION` en `src/app.jsx`, `npm run build`, commit y push a `main`. No edites `app.js` a mano.
 
 ## Cómo se identifican las fotos (Vision pipeline)
 
