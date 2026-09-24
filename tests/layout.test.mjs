@@ -56,3 +56,25 @@ test('Teclado abierto (visualViewport 508px): el último item queda sobre el tec
     assert.ok(r.ok, JSON.stringify(r));
     await page.close();
 });
+
+for (const vh of [844, 508]) {
+    test(`Modal Editar (visualViewport ${vh}px): el último botón es alcanzable`, async () => {
+        const { page } = await openApp(browser, server.url, { items });
+        await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Casa').click());
+        await page.evaluate(() => document.querySelector('[data-testid="scroll"] button svg path[d^="M11 4H4"]').closest('button').click());
+        await page.waitForSelector('[data-testid="sheet"]');
+        await page.focus('[data-testid="sheet"] input');
+        await setVisualViewport(page, vh);
+        const r = await page.evaluate(async (vh) => {
+            const sh = document.querySelector('[data-testid="sheet"]');
+            sh.scrollTop = sh.scrollHeight;
+            await new Promise((r) => setTimeout(r, 400));
+            const btns = [...sh.querySelectorAll('button')];
+            const b = btns[btns.length - 1].getBoundingClientRect();
+            return { text: btns[btns.length - 1].textContent.trim(), top: Math.round(b.top), bottom: Math.round(b.bottom), sheetTop: Math.round(sh.getBoundingClientRect().top), ok: b.bottom <= vh && b.top >= 0 };
+        }, vh);
+        await shot(page, `06-editar-${vh}`);
+        assert.ok(r.ok, JSON.stringify(r));
+        await page.close();
+    });
+}

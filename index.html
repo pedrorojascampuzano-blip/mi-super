@@ -25,7 +25,12 @@
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
         .ios-header { padding-top: max(20px, env(safe-area-inset-top)); }
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        html, body { height: 100%; margin: 0; overflow: hidden; }
+        #root { position: fixed; left: 0; right: 0; top: var(--vv-top, 0px); height: 100vh; height: var(--vv-h, 100dvh); }
+        .scroll-pad { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+        .scroll-pad-bar { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+        .float-bottom { bottom: calc(1rem + env(safe-area-inset-bottom)); }
+        .sheet-safe { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -38,7 +43,22 @@
     </style>
 </head>
 <body>
-    <div id="root" class="h-screen w-full flex justify-center items-start sm:items-center sm:p-4 bg-gray-100"></div>
+    <div id="root" class="w-full flex justify-center items-start sm:items-center sm:p-4 bg-gray-100"></div>
+    <script>
+        // iOS no encoge el layout viewport al abrir el teclado ni con la barra de Safari;
+        // visualViewport sí. Fijamos #root al área realmente visible.
+        (function () {
+            var vv = window.visualViewport, st = document.documentElement.style;
+            if (!vv) return;
+            var sync = function () {
+                st.setProperty('--vv-h', vv.height + 'px');
+                st.setProperty('--vv-top', vv.offsetTop + 'px');
+            };
+            vv.addEventListener('resize', sync);
+            vv.addEventListener('scroll', sync);
+            sync();
+        })();
+    </script>
 
     <script src="app.js"></script>
 

@@ -1203,6 +1203,7 @@ Reglas:
         return base;
     };
     const list = displayItems();
+    const showCheckout = tab==='shop' && items.some(i=>i.status==='cart');
     const groupedList = React.useMemo(() => {
         if (!groupByPlace || tab !== 'inv') return null;
         const g = {};
@@ -1284,7 +1285,7 @@ Reglas:
                 {[{id:'shop',icon:'ShoppingBag',l:'Lista'},{id:'inv',icon:'Home',l:'Casa'},{id:'hist',icon:'History',l:'Historial'}].map(x=>(<button key={x.id} onClick={()=>setTab(x.id)} className={`flex-1 py-3 flex flex-col items-center gap-1 text-[10px] font-bold ${tab===x.id?'text-indigo-600 bg-indigo-50':'text-gray-400'}`}><Icon name={x.icon} size={20} className={tab===x.id?'stroke-[2.5]':'stroke-2'}/> {x.l}</button>))}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 pb-safe-bottom safe-bottom">
+            <div data-testid="scroll" className={`flex-1 overflow-y-auto overscroll-contain pt-4 px-4 space-y-3 bg-gray-50 ${showCheckout ? 'scroll-pad-bar' : 'scroll-pad'}`}>
                 {tab==='shop' && (
                     <React.Fragment>
                         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -1410,14 +1411,14 @@ Reglas:
                 ); return groupedList ? groupedList.flatMap(([place, gitems]) => [<div key={"_g_"+place} className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-3 mb-1 px-1">{place} <span className="text-gray-300">· {gitems.length}</span></div>, ...gitems.map(renderItem)]) : list.map(renderItem); })()}
             </div>
 
-            {tab==='shop' && items.some(i=>i.status==='cart') && (
-                <div className="absolute bottom-4 left-4 right-4 animate-enter pb-safe-bottom">
+            {showCheckout && (
+                <div data-floating className="absolute left-4 right-4 animate-enter float-bottom">
                     <button onClick={requestCheckout} className="w-full bg-gray-900 text-white p-4 rounded-xl shadow-xl flex justify-between items-center"><span className="font-bold text-sm ml-2">Finalizar Compra ({items.filter(i=>i.status==='cart').length})</span><div className="bg-white/20 p-1 rounded-full mr-2"><Icon name="ArrowRight"/></div></button>
                 </div>
             )}
 
             {undoSnapshot && (
-                <div className="absolute bottom-4 left-4 right-4 toast-enter pb-safe-bottom z-30">
+                <div data-floating className="absolute left-4 right-4 toast-enter float-bottom z-30">
                     <div className="bg-gray-900 text-white p-3 rounded-xl shadow-xl flex justify-between items-center">
                         <span className="text-sm">✓ {undoSnapshot.label}</span>
                         <button onClick={() => { setItems(undoSnapshot.items); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold">Deshacer</button>
@@ -1439,8 +1440,8 @@ Reglas:
             )}
 
             {modal && !confirmData.isOpen && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-                    <div className="bg-white w-full rounded-2xl p-5 shadow-2xl animate-enter max-h-[85%] overflow-auto">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4 sheet-safe">
+                    <div data-testid="sheet" className="bg-white w-full rounded-2xl p-5 shadow-2xl animate-enter max-h-full overflow-auto overscroll-contain">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-lg flex gap-2 items-center">
                                 {modal==='settings' && <><Icon name="Settings"/> Ajustes</>}
