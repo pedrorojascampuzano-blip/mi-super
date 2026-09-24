@@ -1,0 +1,5 @@
+#!/bin/sh
+# Recompila app.js si cambió src/app.jsx, para que main nunca quede con app.js viejo.
+if git diff --cached --name-only | grep -q '^src/'; then
+  npm run -s build && git add app.js sw.js
+fi

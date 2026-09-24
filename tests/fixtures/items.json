@@ -1,0 +1,1202 @@
+[
+ {
+  "id": "fx0",
+  "name": "Aceite de aguacate",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Aceites",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx1",
+  "name": "Aceite de oliva",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Aceites",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx2",
+  "name": "Aceite de uva",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Aceites",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx3",
+  "name": "Aceite de trufa",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Aceites",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx4",
+  "name": "Aceite de ajonjolí tostado",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Aceites",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx5",
+  "name": "Aceite de coco extra virgen San Lucas",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Aceites",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx6",
+  "name": "Balsámico La Moderna",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Vinagres",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx7",
+  "name": "Vinagre blanco",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Vinagres",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx8",
+  "name": "Vinagre de manzana",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Vinagres",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx9",
+  "name": "Vinagre de arroz",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Vinagres",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx10",
+  "name": "Salsa de soya",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores asiáticos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx11",
+  "name": "Ponzu",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores asiáticos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx12",
+  "name": "Mirin",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores asiáticos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx13",
+  "name": "Salsa teriyaki",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores asiáticos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx14",
+  "name": "Mayonesa Kewpie",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores asiáticos",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx15",
+  "name": "Salsa botanera",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores mexicanos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx16",
+  "name": "Mermelada de chipotle",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores mexicanos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx17",
+  "name": "Tajín",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores mexicanos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx18",
+  "name": "Pimienta",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias / polvos sazonadores",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx19",
+  "name": "Paprika",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias / polvos sazonadores",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx20",
+  "name": "Sal de mar",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias / polvos sazonadores",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx21",
+  "name": "Consomé en polvo (Knorr)",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias / polvos sazonadores",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx22",
+  "name": "Caldo de tomate en polvo",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias / polvos sazonadores",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx23",
+  "name": "Ajonjolí tostado",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias / polvos sazonadores",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx24",
+  "name": "Miel de abeja",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Mieles / endulzantes",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx25",
+  "name": "Miel de maple",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Mieles / endulzantes",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx26",
+  "name": "Azúcar mascabada",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Mieles / endulzantes",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx27",
+  "name": "Harina normal",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Harinas / polvos para hornear",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx28",
+  "name": "Harina de hot cake",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Harinas / polvos para hornear",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx29",
+  "name": "Harina de almendra",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Harinas / polvos para hornear",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx30",
+  "name": "Maicena",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Harinas / polvos para hornear",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx31",
+  "name": "Chía",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Harinas / polvos para hornear",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx32",
+  "name": "Coco rallado",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Harinas / polvos para hornear",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx33",
+  "name": "Arroz",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx34",
+  "name": "Quinoa",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx35",
+  "name": "Mijo",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx36",
+  "name": "Espagueti Del Mar",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx37",
+  "name": "Pasta para sopa (fideo corto)",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx38",
+  "name": "Pasta panini",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx39",
+  "name": "Café molido",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Granos / pasta / sopas",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx40",
+  "name": "Salmas",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Snacks / panadería seca",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx41",
+  "name": "Pan pita chico",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Snacks / panadería seca",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx42",
+  "name": "Pita crisps",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Snacks / panadería seca",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx43",
+  "name": "Queso de fondue",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Snacks / panadería seca",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx44",
+  "name": "Mantequilla de maní",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Untables / repostería",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx45",
+  "name": "Extracto de vainilla",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Untables / repostería",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx46",
+  "name": "Ajo en polvo",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx47",
+  "name": "Cebolla en polvo",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx48",
+  "name": "Comino",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx49",
+  "name": "Orégano",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx50",
+  "name": "Canela molida",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx51",
+  "name": "Cúrcuma",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx52",
+  "name": "Laurel",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx53",
+  "name": "Tomillo / romero",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx54",
+  "name": "Pimentón ahumado",
+  "places": [
+   "General"
+  ],
+  "status": "cart",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx55",
+  "name": "Nuez moscada",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx56",
+  "name": "Jengibre en polvo",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Especias secas (las que no aparecieron)",
+  "isEssential": true,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx57",
+  "name": "Salsa inglesa (Worcestershire)",
+  "places": [
+   "General"
+  ],
+  "status": "needed",
+  "lastBought": null,
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores líquidos básicos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx58",
+  "name": "Sriracha o chile en aceite",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores líquidos básicos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ },
+ {
+  "id": "fx59",
+  "name": "Miso (si haces sopa)",
+  "places": [
+   "General"
+  ],
+  "status": "stocked",
+  "lastBought": "2026-05-25",
+  "qty": "",
+  "price": "",
+  "expiry": "",
+  "category": "Sazonadores líquidos básicos",
+  "isEssential": false,
+  "photoUrl": "",
+  "unitCount": null,
+  "unitSize": null,
+  "unitType": "",
+  "purchaseAt": "",
+  "expiryType": ""
+ }
+]

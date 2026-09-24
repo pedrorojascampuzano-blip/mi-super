@@ -4,6 +4,7 @@ const PRECACHE = [
   './index.html',
   './manifest.json',
   './config.js',
+  './app.js',
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png'
