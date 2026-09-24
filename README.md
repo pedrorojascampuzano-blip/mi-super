@@ -52,3 +52,55 @@ Las API keys de Gemini/DeepSeek se guardan localmente y solo se envían a Google
 ## Tech
 
 HTML + React + Tailwind en un solo archivo. Sin build step. Service worker para offline.
+
+## Cómo se identifican las fotos (Vision pipeline)
+
+Una foto sube al bucket Supabase Storage `item-photos/<group_id>/<item_id>-<ts>.jpeg` y crea un item con `name = "Identificando…"` en la tabla `items`. El nombre real lo rellena alguno de estos 3 paths según lo que esté armado en este Mac:
+
+### Path A · Browser Vision (default, instant)
+
+Dentro de la PWA, al subir la foto se llama `callAI()` con la API key del usuario (Gemini 2.5 Flash, fallback Claude Haiku 4.5, GPT-4o-mini). Si la key está configurada en Settings (⚙️), patchea el item desde el browser en segundos.
+
+Requiere: usuario tiene API key gratis de Google Gemini guardada en localStorage de la PWA. Sin key, el item se queda placeholder.
+
+### Path B · Watcher Node 24/7 (Claude API)
+
+`scripts/watch-incoming-photos.mjs` corre bajo launchd cada 5s. Polea Supabase por items con name placeholder, llama Claude Haiku 4.5 vision via API, patchea row. No requiere sesión Claude abierta. Cuesta tokens API directos.
+
+Env requerido: `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GROUP_ID`.
+
+### Path C · Listener `/listen` con sesión Claude Code (Plan Max)
+
+Cuando Pedro NO está usando API directa y vive en Plan Max, el flujo es:
+
+1. Daemon launchd `com.pedro.listen.alacena` polea Supabase con cadencia adaptativa.
+2. Detecta items con `name = "Identificando…"` → escribe a queue.
+3. Después de debounce, abre Terminal.app con `claude --resume <session-id>` retomando la sesión Claude que tiene contexto de mi-super.
+4. La sesión retomada baja las fotos con `curl`, las lee multimodal con Read, decide name/category/units, y patchea via `curl` a Supabase.
+
+Requiere: armar listener via skill `/listen` en una sesión Claude con cwd de este repo, y registrar SERVICE_ROLE_KEY en `~/.claude/skills/listen/state/alacena/env` para que el reactor pueda PATCH bypassing RLS.
+
+**Estado actual de este Mac:** revisar con `~/bin/listen-status` qué daemons están vivos.
+
+### Bug histórico 2026-05-28: 135 fotos huérfanas
+
+Pedro subió 135 fotos con el bulk upload nuevo. Las fotos llegaron al bucket OK pero los items quedaron en `Identificando…` porque:
+- Path A: la PWA probablemente cargó SW viejo (v12) sin las correcciones de `compressImage` + retry. Después de actualizar (v14) y con Gemini key, el batch nuevo debería procesarse solo.
+- Path B: no había watcher Node corriendo.
+- Path C: no había listener `/listen` armado para alacena.
+
+Fix: armar Path C con `/listen` + identificar las 135 huérfanas en una pasada con agentes paralelos. Ver `docs/` para el procedimiento.
+
+## Operación
+
+```bash
+# Ver listeners activos para este repo
+~/bin/listen-status
+
+# Logs del watcher Node
+launchctl print "gui/$(id -u)/com.pedro.miSuper.watcher" 2>/dev/null
+
+# Items con placeholder pendientes (requiere SERVICE_ROLE_KEY en .env)
+node scripts/sync-photos.mjs
+```
+
