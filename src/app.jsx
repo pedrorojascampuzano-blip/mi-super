@@ -1,4 +1,5 @@
 import { listShareText } from './lib.js';
+import { appendPurchases, purchaseEntry, computeRendimientos, lastInfo, fmtDay, fmtMonth, fmtMoney, fmtLeft } from './rendimientos.js';
 
 const { useState, useEffect, useRef } = React;
 
@@ -38,7 +39,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '24';
+const APP_VERSION = '25';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -123,6 +124,9 @@ const SuperApp = () => {
         return `hace ${d} d`;
     };
     const [undoSnapshot, setUndoSnapshot] = useState(null);
+    // Historial de compras (nuevo en v25). Solo se agrega; vive en este dispositivo.
+    const [purchases, setPurchases] = useState(() => { try { return JSON.parse(localStorage.getItem('purchases_v1')) || []; } catch { return []; } });
+    const [histView, setHistView] = useState('compras');
     const [notice, setNotice] = useState(null);
     const noticeTimerRef = useRef(null);
     const showToast = (msg) => { setNotice(msg); clearTimeout(noticeTimerRef.current); noticeTimerRef.current = setTimeout(() => setNotice(null), 2500); };
@@ -220,6 +224,8 @@ const SuperApp = () => {
     }, []);
 
     useEffect(() => { localStorage.setItem('data_v4', JSON.stringify(items)); }, [items]);
+    useEffect(() => { try { localStorage.setItem('purchases_v1', JSON.stringify(purchases)); } catch {} }, [purchases]);
+    const itemsRef = useRef(items); itemsRef.current = items;
     useEffect(() => { localStorage.setItem('saved_tags', JSON.stringify(savedTags)); }, [savedTags]);
     useEffect(() => { localStorage.setItem('gem_key', key); }, [key]);
     useEffect(() => { localStorage.setItem('ds_key', dsKey); }, [dsKey]);
@@ -465,11 +471,14 @@ const SuperApp = () => {
             msg: `¿Mover ${count} productos a Casa?`,
             action: () => {
                 const snapshot = items;
-                setItems(prev => prev.map(i => i.status === 'cart' ? { ...i, status: 'stocked', lastBought: todayISO() } : i));
+                const purchasesSnapshot = purchases;
+                const today = todayISO();
+                setPurchases(p => appendPurchases(p, items.filter(i => i.status === 'cart').map(i => purchaseEntry(i, today, 'compra'))));
+                setItems(prev => prev.map(i => i.status === 'cart' ? { ...i, status: 'stocked', lastBought: today } : i));
                 setTab('inv');
                 setConfirmData({ isOpen: false });
                 if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-                setUndoSnapshot({ items: snapshot, label: `${count} productos a Casa` });
+                setUndoSnapshot({ items: snapshot, purchases: purchasesSnapshot, label: `${count} productos a Casa` });
                 undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5000);
             },
             actionText: "Finalizar compra"
@@ -724,21 +733,25 @@ const SuperApp = () => {
                     const ticketItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
                     if (ticketItems.length === 0) { setResult("Ticket procesado pero no se detectaron productos."); return; }
                     let added = 0, updated = 0;
-                    setItems(prev => {
-                        const list = [...prev];
-                        ticketItems.forEach(t => {
-                            const idx = list.findIndex(i => i.name.toLowerCase().includes(t.name.toLowerCase()));
-                            if (idx >= 0) {
-                                list[idx] = { ...list[idx], price: t.price, lastBought: todayISO(), status: 'stocked' };
-                                updated++;
-                            } else {
-                                list.push({ id: newId(), name: t.name, places: ['Ticket'], status: 'stocked', lastBought: todayISO(), qty: t.qty || '1', price: t.price, expiry: '', category: 'Otros', isEssential: false });
-                                added++;
-                            }
-                        });
-                        return list;
+                    const today = todayISO();
+                    const list = [...itemsRef.current];
+                    const bought = [];
+                    ticketItems.forEach(t => {
+                        const idx = list.findIndex(i => i.name.toLowerCase().includes(t.name.toLowerCase()));
+                        if (idx >= 0) {
+                            list[idx] = { ...list[idx], price: t.price, lastBought: today, status: 'stocked' };
+                            bought.push(purchaseEntry(list[idx], today, 'ticket', t.price, t.qty));
+                            updated++;
+                        } else {
+                            const created = { id: newId(), name: t.name, places: ['Ticket'], status: 'stocked', lastBought: today, qty: t.qty || '1', price: t.price, expiry: '', category: 'Otros', isEssential: false };
+                            list.push(created);
+                            bought.push(purchaseEntry(created, today, 'ticket', t.price, t.qty));
+                            added++;
+                        }
                     });
-                    setResult(`🧾 Ticket: ${added} nuevos, ${updated} actualizados.`);
+                    setItems(list);
+                    setPurchases(p => appendPurchases(p, bought));
+                    setResult(`Ticket: ${added} nuevos, ${updated} actualizados. Quedó en Rendimientos.`);
                 } catch (err) { setResult("Error procesando datos del ticket."); }
             }
         };
@@ -1270,7 +1283,7 @@ Reglas:
     const toggleListening = () => { if(isListening && recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); } else startListening(); };
 
     // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, items };
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, items };
 
     const modalFooter = () => {
         if (modal === 'edit' && editItem) return <button onClick={saveEdit} className="ms-btn ms-btn-primary">Guardar cambios</button>;
@@ -1283,6 +1296,121 @@ Reglas:
             </div>
         );
         return null;
+    };
+
+    const addToList = (ids) => setItems(prev => prev.map(i => ids.includes(i.id) ? { ...i, status: 'needed' } : i));
+
+    const renderRendimientos = () => {
+        const r = computeRendimientos(purchases, items, todayISO());
+        const maxMonth = Math.max(1, ...r.months.map(m => m.total));
+        const Head = ({ children }) => <div className="ms-group" style={{paddingTop:22}}>{children}</div>;
+        const Note = ({ children }) => <p className="ms-note" style={{color:'var(--ink-3)'}}>{children}</p>;
+        return (
+            <div data-testid="rendimientos">
+                <p className="ms-note" style={{marginTop:4}}>
+                    {r.since
+                        ? <>Historial desde el {fmtDay(r.since)}: {r.totalPurchases} {r.totalPurchases === 1 ? 'compra registrada' : 'compras registradas'}.</>
+                        : <>El historial se empieza a llenar desde esta versión: cada vez que finalizas una compra o lees un ticket. Antes la app solo guardaba la última compra y el último precio de cada producto.</>}
+                </p>
+
+                {r.runningOut.length > 0 && (
+                    <section>
+                        <Head>Por acabarse</Head>
+                        {r.runningOut.map(p => (
+                            <div key={p.key} className="ms-row">
+                                <div className="flex-1 min-w-0">
+                                    <p className="ms-name">{p.name}</p>
+                                    <p className="ms-meta">cada {p.every} días · última {fmtDay(p.last)} · <span className={p.daysLeft < 0 ? 'warn' : ''}>{fmtLeft(p.daysLeft)}</span></p>
+                                </div>
+                                <button onClick={()=>addToList([p.itemId])} className="ms-link-strong shrink-0">A la lista</button>
+                            </div>
+                        ))}
+                        {r.runningOut.length > 1 && (
+                            <div style={{padding:'10px var(--gutter)'}}>
+                                <button onClick={()=>addToList(r.runningOut.map(p=>p.itemId))} className="ms-btn ms-btn-secondary">Agregar los {r.runningOut.length} a la lista</button>
+                            </div>
+                        )}
+                    </section>
+                )}
+
+                <section>
+                    <Head>Cada cuánto se acaba</Head>
+                    {r.products.length > 0 ? r.products.map(p => (
+                        <div key={p.key} className="ms-row">
+                            <div className="flex-1 min-w-0">
+                                <p className="ms-name">{p.name}</p>
+                                <p className="ms-meta">cada {p.every} días · {p.purchases} compras · última {fmtDay(p.last)}</p>
+                            </div>
+                            <p className="ms-meta shrink-0 text-right" style={{marginTop:0}}>{fmtDay(p.next)}<br/><span className={p.daysLeft < 0 ? 'warn' : ''}>{fmtLeft(p.daysLeft)}</span></p>
+                        </div>
+                    )) : (
+                        <Note>Para saber cada cuánto se acaba un producto hacen falta al menos dos compras registradas en días distintos.{r.singles.length > 0 && <> Hoy hay {r.singles.length} {r.singles.length === 1 ? 'producto' : 'productos'} con una sola.</>}</Note>
+                    )}
+                </section>
+
+                <section>
+                    <Head>Gasto por mes</Head>
+                    {r.months.length > 0 ? r.months.map(m => (
+                        <div key={m.month} className="ms-row" style={{display:'block', minHeight:0}}>
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span style={{fontSize:16}}>{fmtMonth(m.month)}</span>
+                                <span style={{fontSize:16, fontVariantNumeric:'tabular-nums'}}>{fmtMoney(m.total)}</span>
+                            </div>
+                            <div aria-hidden="true" style={{height:2, background:'var(--rule)', marginTop:6}}><div style={{height:2, width:`${(m.total / maxMonth) * 100}%`, background:'var(--ink)'}}></div></div>
+                            <p className="ms-meta">{m.purchases} {m.purchases === 1 ? 'compra' : 'compras'}{m.unpriced > 0 && <> · {m.unpriced} sin precio, no suman</>}</p>
+                        </div>
+                    )) : <Note>Todavía no hay compras registradas.</Note>}
+                    {r.months.length > 0 && <Note>Finalizar compra usa el último precio guardado de cada producto; el ticket usa el precio que se leyó.</Note>}
+                </section>
+
+                {r.categories.length > 0 && (
+                    <section>
+                        <Head>Por categoría · desde el {fmtDay(r.categoryWindowStart)}</Head>
+                        {r.categories.map(c => (
+                            <div key={c.category} className="ms-row" style={{minHeight:48}}>
+                                <span className="flex-1 min-w-0" style={{fontSize:16}}>{c.category}</span>
+                                <span className="ms-meta" style={{marginTop:0, width:44, textAlign:'right'}}>{Math.round(c.share * 100)}%</span>
+                                <span style={{fontSize:16, fontVariantNumeric:'tabular-nums', minWidth:80, textAlign:'right'}}>{fmtMoney(c.total)}</span>
+                            </div>
+                        ))}
+                    </section>
+                )}
+
+                <section>
+                    <Head>Precio por compra</Head>
+                    {r.priceTrends.length > 0 ? r.priceTrends.map(p => {
+                        const first = p.prices[0].price, last = p.prices[p.prices.length - 1].price;
+                        const change = Math.round(((last - first) / first) * 100);
+                        return (
+                            <div key={p.key} className="ms-row">
+                                <div className="flex-1 min-w-0">
+                                    <p className="ms-name">{p.name}</p>
+                                    <p className="ms-meta">{p.prices.slice(-5).map(x => `${fmtMoney(x.price)} (${fmtDay(x.date)})`).join(' → ')}</p>
+                                </div>
+                                <span className="ms-meta shrink-0" style={{marginTop:0, color: change > 0 ? 'var(--danger)' : 'var(--ink-3)'}}>{change > 0 ? '+' : ''}{change}%</span>
+                            </div>
+                        );
+                    }) : <Note>Para ver cómo cambia el precio hacen falta al menos dos compras con precio del mismo producto.</Note>}
+                </section>
+
+                {r.beforeLog.length > 0 && (
+                    <section>
+                        <Head>Antes del historial · {r.beforeLog.length}</Head>
+                        <Note>De estos solo se sabe la última compra y el último precio; no alcanza para calcular cada cuánto se acaban.</Note>
+                        {r.beforeLog.slice(0, 30).map(i => {
+                            const info = lastInfo(i, purchases);
+                            return (
+                                <div key={i.id} className="ms-row" style={{minHeight:48}}>
+                                    <span className="flex-1 min-w-0" style={{fontSize:16}}>{i.name}</span>
+                                    <span className="ms-meta shrink-0" style={{marginTop:0}}>{fmtDay(info.date)}{info.price !== null && <> · {fmtMoney(info.price)}</>}</span>
+                                </div>
+                            );
+                        })}
+                        {r.beforeLog.length > 30 && <Note>Y {r.beforeLog.length - 30} más.</Note>}
+                    </section>
+                )}
+            </div>
+        );
     };
 
     const tabCounts = {
@@ -1318,7 +1446,7 @@ Reglas:
                     <p className="ms-meta">
                         {[i.category, (i.places||[]).filter(p=>p && p!=='General').join(', ')].filter(Boolean).join(' · ')}
                         {units && tab!=='inv' && <> · {units}</>}
-                        {i.price && <> · ${i.price}</>}
+                        {tab==='shop' ? (() => { const li = lastInfo(i, purchases); return li.price !== null ? <> · la última vez {fmtMoney(li.price)}{li.priceDate ? ` (${fmtDay(li.priceDate)})` : ''}</> : null; })() : (i.price && <> · ${i.price}</>)}
                         {i.purchaseAt && <> · {i.purchaseAt}</>}
                         {i.expiry && <> · <span className={isCriticalExpired(i)?'danger':isSoftExpired(i)?'warn':''}>{expiryLabel(i)}</span></>}
                         {flags.length > 0 && <> · {flags.join(', ')}</>}
@@ -1412,6 +1540,12 @@ Reglas:
 
             <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
                 <div className="ms-tools">
+                    {tab==='hist' && (
+                        <div className="flex gap-5 items-center" role="tablist">
+                            <button onClick={()=>setHistView('compras')} aria-pressed={histView==='compras'} className="ms-toggle">Compras</button>
+                            <button onClick={()=>setHistView('rend')} aria-pressed={histView==='rend'} className="ms-toggle">Rendimientos</button>
+                        </div>
+                    )}
                     {tab==='shop' && (
                         <div className="flex gap-4 overflow-x-auto no-scrollbar items-center" data-hscroll>
                             <span className="shrink-0" style={{fontSize:13, color:'var(--ink-3)'}}>Ver</span>
@@ -1446,12 +1580,13 @@ Reglas:
                     {(tab==='inv' || tab==='hist' || tab==='shop') && (
                         <div className="flex justify-end gap-5 -mb-1">
                             {tab==='shop' && list.length > 0 && <button onClick={shareList} className="ms-link flex items-center gap-1.5"><Icon name="Share" size={15}/> Compartir lista</button>}
-                            {tab!=='shop' && <button onClick={handleExportCSV} className="ms-link">Exportar CSV</button>}
+                            {tab!=='shop' && !(tab==='hist' && histView==='rend') && <button onClick={handleExportCSV} className="ms-link">Exportar CSV</button>}
                             {tab==='inv' && <label className="ms-link cursor-pointer">Importar CSV<input type="file" accept=".csv" onChange={handleImportCSV} className="hidden"/></label>}
                         </div>
                     )}
                 </div>
 
+                {tab==='hist' && histView==='rend' ? renderRendimientos() : (<>
                 {invFilter==='MariKondo' && tab==='inv' && list.length > 0 && (
                     <p className="ms-note"><strong>{list.length}</strong> candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses.</p>
                 )}
@@ -1471,6 +1606,7 @@ Reglas:
                             : <>No hay nada aquí todavía.</>}
                     </div>
                 )}
+                </>)}
                 <div style={{height:24}} aria-hidden="true"></div>
             </div>
 
@@ -1479,7 +1615,7 @@ Reglas:
                     {undoSnapshot && (
                         <div className="ms-toast" role="status">
                             <span>{undoSnapshot.label}</span>
-                            <button onClick={() => { setItems(undoSnapshot.items); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="ms-link-strong">Deshacer</button>
+                            <button onClick={() => { setItems(undoSnapshot.items); if (undoSnapshot.purchases) setPurchases(undoSnapshot.purchases); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="ms-link-strong">Deshacer</button>
                         </div>
                     )}
                     {notice && !undoSnapshot && <div className="ms-toast" role="status"><span>{notice}</span></div>}

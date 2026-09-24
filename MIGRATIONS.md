@@ -26,6 +26,7 @@ Estas keys son estables. **No las renombres ni las borres** sin migration:
 | `gem_key`, `ds_key`, `cl_key`, `oa_key` | API keys de cada provider |
 | `cloud_group_id`, `cloud_group_code`, `cloud_group_name`, `cloud_nickname` | Estado del grupo en modo cloud |
 | `onboarded_v1` | Si ya pasó por el onboarding |
+| `purchases_v1` | Historial de compras para Rendimientos (v25+). Solo se agrega: `{ id, itemId, name, category, date, price, qty, source }`. Vive solo en este dispositivo; no se sincroniza a Supabase (para eso haría falta una tabla `purchases`). |
 
 ### Reglas para evolucionar el schema
 

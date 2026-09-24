@@ -82,3 +82,73 @@ test('Tras Finalizar compra, el aviso Deshacer no tapa nada y deshace', async ()
     assert.deepEqual(saved, items);
     await page.close();
 });
+
+test('Finalizar compra registra el historial y Deshacer lo quita', async () => {
+    const { page } = await openApp(browser, server.url, { items });
+    await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Finalizar compra')).click());
+    await page.waitForSelector('[data-testid="confirm"]');
+    await page.evaluate(() => [...document.querySelectorAll('[data-testid="confirm"] button')].find((b) => b.textContent.includes('Finalizar')).click());
+    await page.waitForSelector('[data-dock] [role="status"]');
+    const log = await page.evaluate(() => JSON.parse(localStorage.getItem('purchases_v1')));
+    const cart = items.filter((i) => i.status === 'cart');
+    assert.deepEqual(log.map((p) => p.itemId).sort(), cart.map((i) => i.id).sort());
+    assert.ok(log.every((p) => p.source === 'compra' && /^\d{4}-\d{2}-\d{2}$/.test(p.date)));
+    await page.evaluate(() => [...document.querySelectorAll('[data-dock] button')].find((b) => b.textContent === 'Deshacer').click());
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('purchases_v1'))), []);
+    await page.close();
+});
+
+test('Rendimientos sin historial lo dice en vez de inventar', async () => {
+    const { page } = await openApp(browser, server.url, { items });
+    await page.click('[data-tab="hist"]');
+    await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Rendimientos').click());
+    const txt = await page.evaluate(() => document.querySelector('[data-testid="rendimientos"]').textContent);
+    assert.match(txt, /El historial se empieza a llenar/);
+    assert.match(txt, /hacen falta al menos dos compras/);
+    assert.match(txt, /Antes del historial · 40/);
+    await page.close();
+});
+
+test('Rendimientos: por acabarse se agrega a la lista', async () => {
+    const { exampleLog } = await import('./states.mjs');
+    const log = exampleLog();
+    const { page } = await openApp(browser, server.url, { items, extra: { purchases_v1: JSON.stringify(log) } });
+    await page.click('[data-tab="hist"]');
+    await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Rendimientos').click());
+    const txt = await page.evaluate(() => document.querySelector('[data-testid="rendimientos"]').textContent);
+    assert.match(txt, /Por acabarse/); assert.match(txt, /Gasto por mes/); assert.match(txt, /Precio por compra/);
+    const before = await page.evaluate(() => JSON.parse(localStorage.getItem('data_v4')).filter((i) => i.status === 'needed').length);
+    const ok = await page.evaluate(() => { const b = [...document.querySelectorAll('[data-testid="rendimientos"] button')].find((x) => x.textContent === 'A la lista'); b?.click(); return !!b; });
+    assert.ok(ok, 'hay al menos un producto por acabarse');
+    await new Promise((r) => setTimeout(r, 200));
+    const after = await page.evaluate(() => JSON.parse(localStorage.getItem('data_v4')).filter((i) => i.status === 'needed').length);
+    assert.equal(after, before + 1);
+    await page.close();
+});
+
+test('Lista muestra el precio de la última vez', async () => {
+    const withPrice = items.map((i) => (i.id === 'fx0' ? { ...i, price: '89', lastBought: '2026-09-01' } : i));
+    const { page } = await openApp(browser, server.url, { items: withPrice });
+    const txt = await page.evaluate(() => document.querySelector('[data-testid="scroll"]').textContent);
+    assert.match(txt, /la última vez \$89 \(1 sep\)/);
+    await page.close();
+});
+
+test('Leer un ticket actualiza precios y registra cada producto en el historial', async () => {
+    const ticket = { items: [{ name: 'Aceite de oliva', price: 199, qty: '1' }, { name: 'Pan de caja', price: 52, qty: '1' }] };
+    const { page } = await openApp(browser, server.url, {
+        items, extra: { gem_key: 'test-key' },
+        mock: { 'generativelanguage.googleapis.com': { candidates: [{ content: { parts: [{ text: JSON.stringify(ticket) }] } }] } },
+    });
+    const input = await page.$('label[aria-label="Leer ticket"] input[type=file]');
+    await input.uploadFile(path.join(ROOT, 'icon-192.png'));
+    await page.waitForFunction(() => (JSON.parse(localStorage.getItem('purchases_v1') || '[]')).length === 2, { timeout: 10000 });
+    const log = await page.evaluate(() => JSON.parse(localStorage.getItem('purchases_v1')));
+    assert.deepEqual(log.map((p) => [p.name, p.price, p.source]), [['Aceite de oliva', 199, 'ticket'], ['Pan de caja', 52, 'ticket']]);
+    assert.equal(log[0].itemId, 'fx1');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('data_v4')));
+    assert.equal(saved.find((i) => i.id === 'fx1').price, 199);
+    assert.ok(saved.find((i) => i.name === 'Pan de caja'));
+    await page.close();
+});

@@ -14,6 +14,141 @@
 ${body}`;
   };
 
+  // src/rendimientos.js
+  var DAY = 864e5;
+  var toDate = (iso) => /* @__PURE__ */ new Date(iso + "T12:00:00");
+  var daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / DAY);
+  var addDays = (iso, n) => new Date(toDate(iso).getTime() + n * DAY).toISOString().slice(0, 10);
+  var toPrice = (v) => {
+    if (v === null || v === void 0 || v === "") return null;
+    const n = typeof v === "number" ? v : Number(String(v).replace(/[$,\s]/g, ""));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  var norm = (s) => (s || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").trim();
+  var keyOf = (p) => p.itemId || "n:" + norm(p.name);
+  var appendPurchases = (log, entries) => {
+    const out = [...log];
+    for (const e of entries) {
+      const k = keyOf(e);
+      const idx = out.findIndex((p) => keyOf(p) === k && p.date === e.date);
+      if (idx < 0) {
+        out.push(e);
+        continue;
+      }
+      const prev = out[idx];
+      const useNewPrice = e.price !== null && (prev.price === null || e.source === "ticket");
+      out[idx] = { ...prev, price: useNewPrice ? e.price : prev.price, source: useNewPrice ? e.source : prev.source, qty: e.qty || prev.qty };
+    }
+    return out;
+  };
+  var purchaseEntry = (item, date, source, price = item.price, qty = item.qty) => ({
+    id: `${item.id}-${date}-${source}`,
+    itemId: item.id,
+    name: item.name,
+    category: item.category || "Otros",
+    date,
+    price: toPrice(price),
+    qty: qty || "",
+    source
+  });
+  var lastInfo = (item, log) => {
+    const mine = log.filter((p) => keyOf(p) === keyOf({ itemId: item.id, name: item.name }) || !p.itemId && norm(p.name) === norm(item.name)).sort((a, b) => a.date.localeCompare(b.date));
+    const lastLog = mine[mine.length - 1];
+    const priced = mine.filter((p) => p.price !== null);
+    const lastPriced = priced[priced.length - 1];
+    let date = lastLog ? lastLog.date : null;
+    if (item.lastBought && (!date || item.lastBought > date)) date = item.lastBought;
+    let price = lastPriced ? lastPriced.price : null;
+    let priceDate = lastPriced ? lastPriced.date : null;
+    if (price === null && toPrice(item.price) !== null) {
+      price = toPrice(item.price);
+      priceDate = item.lastBought || null;
+    }
+    return { date, price, priceDate, fromLog: !!lastLog };
+  };
+  var computeRendimientos = (log, items, today) => {
+    const itemsById = new Map(items.map((i) => [i.id, i]));
+    const groups = /* @__PURE__ */ new Map();
+    for (const p of log) {
+      const k = keyOf(p);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(p);
+    }
+    const products = [];
+    for (const [k, entries] of groups) {
+      entries.sort((a, b) => a.date.localeCompare(b.date));
+      const item = entries[0].itemId ? itemsById.get(entries[0].itemId) : items.find((i) => norm(i.name) === norm(entries[0].name));
+      const dates = [...new Set(entries.map((e) => e.date))];
+      const gaps = dates.slice(1).map((d, i) => daysBetween(dates[i], d));
+      const every = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : null;
+      const last = dates[dates.length - 1];
+      const next = every ? addDays(last, every) : null;
+      products.push({
+        key: k,
+        itemId: item ? item.id : null,
+        name: item ? item.name : entries[entries.length - 1].name,
+        category: item ? item.category || "Otros" : entries[entries.length - 1].category,
+        status: item ? item.status : null,
+        purchases: dates.length,
+        every,
+        last,
+        next,
+        daysLeft: next ? daysBetween(today, next) : null,
+        prices: entries.filter((e) => e.price !== null).map((e) => ({ date: e.date, price: e.price }))
+      });
+    }
+    const loggedIds = new Set(products.map((p) => p.itemId).filter(Boolean));
+    const beforeLog = items.filter((i) => i.lastBought && !loggedIds.has(i.id));
+    const months = /* @__PURE__ */ new Map();
+    const categories = /* @__PURE__ */ new Map();
+    const windowStart = addDays(today, -89);
+    let unpriced = 0;
+    for (const p of log) {
+      const m = p.date.slice(0, 7);
+      if (!months.has(m)) months.set(m, { month: m, total: 0, purchases: 0, unpriced: 0 });
+      const row = months.get(m);
+      row.purchases++;
+      if (p.price === null) {
+        row.unpriced++;
+        unpriced++;
+        continue;
+      }
+      row.total += p.price;
+      if (p.date >= windowStart) {
+        const c = p.category || "Otros";
+        categories.set(c, (categories.get(c) || 0) + p.price);
+      }
+    }
+    const catTotal = [...categories.values()].reduce((a, b) => a + b, 0);
+    const withInterval = products.filter((p) => p.every !== null);
+    const runningOut = withInterval.filter((p) => p.daysLeft <= 3 && p.itemId && p.status !== "needed" && p.status !== "cart").sort((a, b) => a.daysLeft - b.daysLeft);
+    return {
+      since: log.length ? log.map((p) => p.date).sort()[0] : null,
+      totalPurchases: log.length,
+      unpriced,
+      products: withInterval.sort((a, b) => a.daysLeft - b.daysLeft),
+      singles: products.filter((p) => p.every === null).sort((a, b) => b.last.localeCompare(a.last)),
+      beforeLog: beforeLog.sort((a, b) => b.lastBought.localeCompare(a.lastBought)),
+      months: [...months.values()].sort((a, b) => b.month.localeCompare(a.month)),
+      categories: [...categories.entries()].map(([category, total]) => ({ category, total, share: catTotal ? total / catTotal : 0 })).sort((a, b) => b.total - a.total),
+      categoryWindowStart: windowStart,
+      priceTrends: products.filter((p) => p.prices.length >= 2).sort((a, b) => a.name.localeCompare(b.name, "es")),
+      runningOut
+    };
+  };
+  var MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  var fmtDay = (iso) => {
+    if (!iso) return "";
+    const [, m, d] = iso.split("-");
+    return `${Number(d)} ${MONTHS[Number(m) - 1]}`;
+  };
+  var fmtMonth = (ym) => {
+    const [y, m] = ym.split("-");
+    return `${MONTHS[Number(m) - 1]} ${y}`;
+  };
+  var fmtMoney = (n) => "$" + (Math.round(n * 100) / 100).toLocaleString("es-MX", { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
+  var fmtLeft = (d) => d === null ? "" : d < 0 ? `tocaba hace ${-d} ${-d === 1 ? "día" : "días"}` : d === 0 ? "toca hoy" : `en ${d} ${d === 1 ? "día" : "días"}`;
+
   // src/app.jsx
   var { useState, useEffect, useRef } = React;
   var Icon = ({ name, size = 20, className = "" }) => {
@@ -47,7 +182,7 @@ ${body}`;
     };
     return /* @__PURE__ */ React.createElement("svg", { className, width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, i[name]);
   };
-  var APP_VERSION = "24";
+  var APP_VERSION = "25";
   var Sheet = ({ title, onClose, footer, children, z = 50, testid }) => /* @__PURE__ */ React.createElement("div", { className: "ms-overlay", style: { zIndex: z }, onClick: (e) => {
     if (e.target === e.currentTarget && onClose) onClose();
   } }, /* @__PURE__ */ React.createElement("div", { className: "ms-sheet", role: "dialog", "aria-modal": "true", "aria-label": typeof title === "string" ? title : void 0, "data-testid": testid }, (title || onClose) && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-head" }, /* @__PURE__ */ React.createElement("h2", { className: "serif ms-sheet-title min-w-0" }, title), onClose && /* @__PURE__ */ React.createElement("button", { onClick: onClose, "aria-label": "Cerrar", className: "ms-icon-btn", style: { color: "var(--ink-2)" } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 22 }))), children ? /* @__PURE__ */ React.createElement("div", { className: `ms-sheet-body ${footer ? "" : "no-foot"}`, "data-testid": "sheet-body" }, children) : null, footer && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-foot" }, footer)));
@@ -127,6 +262,14 @@ ${body}`;
       return `hace ${d} d`;
     };
     const [undoSnapshot, setUndoSnapshot] = useState(null);
+    const [purchases, setPurchases] = useState(() => {
+      try {
+        return JSON.parse(localStorage.getItem("purchases_v1")) || [];
+      } catch {
+        return [];
+      }
+    });
+    const [histView, setHistView] = useState("compras");
     const [notice, setNotice] = useState(null);
     const noticeTimerRef = useRef(null);
     const showToast = (msg) => {
@@ -224,6 +367,14 @@ ${body}`;
     useEffect(() => {
       localStorage.setItem("data_v4", JSON.stringify(items));
     }, [items]);
+    useEffect(() => {
+      try {
+        localStorage.setItem("purchases_v1", JSON.stringify(purchases));
+      } catch {
+      }
+    }, [purchases]);
+    const itemsRef = useRef(items);
+    itemsRef.current = items;
     useEffect(() => {
       localStorage.setItem("saved_tags", JSON.stringify(savedTags));
     }, [savedTags]);
@@ -518,11 +669,14 @@ ${body}`;
         msg: `¿Mover ${count} productos a Casa?`,
         action: () => {
           const snapshot = items;
-          setItems((prev) => prev.map((i) => i.status === "cart" ? { ...i, status: "stocked", lastBought: todayISO() } : i));
+          const purchasesSnapshot = purchases;
+          const today = todayISO();
+          setPurchases((p) => appendPurchases(p, items.filter((i) => i.status === "cart").map((i) => purchaseEntry(i, today, "compra"))));
+          setItems((prev) => prev.map((i) => i.status === "cart" ? { ...i, status: "stocked", lastBought: today } : i));
           setTab("inv");
           setConfirmData({ isOpen: false });
           if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-          setUndoSnapshot({ items: snapshot, label: `${count} productos a Casa` });
+          setUndoSnapshot({ items: snapshot, purchases: purchasesSnapshot, label: `${count} productos a Casa` });
           undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5e3);
         },
         actionText: "Finalizar compra"
@@ -787,21 +941,25 @@ ${body}`;
               return;
             }
             let added = 0, updated = 0;
-            setItems((prev) => {
-              const list2 = [...prev];
-              ticketItems.forEach((t) => {
-                const idx = list2.findIndex((i) => i.name.toLowerCase().includes(t.name.toLowerCase()));
-                if (idx >= 0) {
-                  list2[idx] = { ...list2[idx], price: t.price, lastBought: todayISO(), status: "stocked" };
-                  updated++;
-                } else {
-                  list2.push({ id: newId(), name: t.name, places: ["Ticket"], status: "stocked", lastBought: todayISO(), qty: t.qty || "1", price: t.price, expiry: "", category: "Otros", isEssential: false });
-                  added++;
-                }
-              });
-              return list2;
+            const today = todayISO();
+            const list2 = [...itemsRef.current];
+            const bought = [];
+            ticketItems.forEach((t) => {
+              const idx = list2.findIndex((i) => i.name.toLowerCase().includes(t.name.toLowerCase()));
+              if (idx >= 0) {
+                list2[idx] = { ...list2[idx], price: t.price, lastBought: today, status: "stocked" };
+                bought.push(purchaseEntry(list2[idx], today, "ticket", t.price, t.qty));
+                updated++;
+              } else {
+                const created = { id: newId(), name: t.name, places: ["Ticket"], status: "stocked", lastBought: today, qty: t.qty || "1", price: t.price, expiry: "", category: "Otros", isEssential: false };
+                list2.push(created);
+                bought.push(purchaseEntry(created, today, "ticket", t.price, t.qty));
+                added++;
+              }
             });
-            setResult(`🧾 Ticket: ${added} nuevos, ${updated} actualizados.`);
+            setItems(list2);
+            setPurchases((p) => appendPurchases(p, bought));
+            setResult(`Ticket: ${added} nuevos, ${updated} actualizados. Quedó en Rendimientos.`);
           } catch (err) {
             setResult("Error procesando datos del ticket.");
           }
@@ -1450,7 +1608,7 @@ Reglas:
         setIsListening(false);
       } else startListening();
     };
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, items };
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, items };
     const modalFooter = () => {
       if (modal === "edit" && editItem) return /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "ms-btn ms-btn-primary" }, "Guardar cambios");
       if (modal === "view" && viewItem) return /* @__PURE__ */ React.createElement("button", { onClick: () => {
@@ -1460,6 +1618,21 @@ Reglas:
       if (modal === "settings") return /* @__PURE__ */ React.createElement("button", { onClick: () => setModal(null), className: "ms-btn ms-btn-primary" }, "Guardar");
       if (modal === "dictate") return /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: toggleListening, className: `ms-btn ms-btn-secondary ${isListening ? "mic-active" : ""}` }, isListening ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Icon, { name: "Stop", size: 18 }), " Parar") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Icon, { name: "Mic", size: 18 }), " Hablar")), /* @__PURE__ */ React.createElement("button", { onClick: handleDictation, disabled: loading || !prompt.trim(), className: "ms-btn ms-btn-primary" }, loading ? "Pensando…" : "Procesar"));
       return null;
+    };
+    const addToList = (ids) => setItems((prev) => prev.map((i) => ids.includes(i.id) ? { ...i, status: "needed" } : i));
+    const renderRendimientos = () => {
+      const r = computeRendimientos(purchases, items, todayISO());
+      const maxMonth = Math.max(1, ...r.months.map((m) => m.total));
+      const Head = ({ children }) => /* @__PURE__ */ React.createElement("div", { className: "ms-group", style: { paddingTop: 22 } }, children);
+      const Note = ({ children }) => /* @__PURE__ */ React.createElement("p", { className: "ms-note", style: { color: "var(--ink-3)" } }, children);
+      return /* @__PURE__ */ React.createElement("div", { "data-testid": "rendimientos" }, /* @__PURE__ */ React.createElement("p", { className: "ms-note", style: { marginTop: 4 } }, r.since ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Historial desde el ", fmtDay(r.since), ": ", r.totalPurchases, " ", r.totalPurchases === 1 ? "compra registrada" : "compras registradas", ".") : /* @__PURE__ */ React.createElement(React.Fragment, null, "El historial se empieza a llenar desde esta versión: cada vez que finalizas una compra o lees un ticket. Antes la app solo guardaba la última compra y el último precio de cada producto.")), r.runningOut.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Por acabarse"), r.runningOut.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, "cada ", p.every, " días · última ", fmtDay(p.last), " · ", /* @__PURE__ */ React.createElement("span", { className: p.daysLeft < 0 ? "warn" : "" }, fmtLeft(p.daysLeft)))), /* @__PURE__ */ React.createElement("button", { onClick: () => addToList([p.itemId]), className: "ms-link-strong shrink-0" }, "A la lista"))), r.runningOut.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px var(--gutter)" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => addToList(r.runningOut.map((p) => p.itemId)), className: "ms-btn ms-btn-secondary" }, "Agregar los ", r.runningOut.length, " a la lista"))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Cada cuánto se acaba"), r.products.length > 0 ? r.products.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, "cada ", p.every, " días · ", p.purchases, " compras · última ", fmtDay(p.last))), /* @__PURE__ */ React.createElement("p", { className: "ms-meta shrink-0 text-right", style: { marginTop: 0 } }, fmtDay(p.next), /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { className: p.daysLeft < 0 ? "warn" : "" }, fmtLeft(p.daysLeft))))) : /* @__PURE__ */ React.createElement(Note, null, "Para saber cada cuánto se acaba un producto hacen falta al menos dos compras registradas en días distintos.", r.singles.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " Hoy hay ", r.singles.length, " ", r.singles.length === 1 ? "producto" : "productos", " con una sola."))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Gasto por mes"), r.months.length > 0 ? r.months.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.month, className: "ms-row", style: { display: "block", minHeight: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-baseline justify-between gap-3" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16 } }, fmtMonth(m.month)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, fontVariantNumeric: "tabular-nums" } }, fmtMoney(m.total))), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { height: 2, background: "var(--rule)", marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 2, width: `${m.total / maxMonth * 100}%`, background: "var(--ink)" } })), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, m.purchases, " ", m.purchases === 1 ? "compra" : "compras", m.unpriced > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", m.unpriced, " sin precio, no suman")))) : /* @__PURE__ */ React.createElement(Note, null, "Todavía no hay compras registradas."), r.months.length > 0 && /* @__PURE__ */ React.createElement(Note, null, "Finalizar compra usa el último precio guardado de cada producto; el ticket usa el precio que se leyó.")), r.categories.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Por categoría · desde el ", fmtDay(r.categoryWindowStart)), r.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, className: "ms-row", style: { minHeight: 48 } }, /* @__PURE__ */ React.createElement("span", { className: "flex-1 min-w-0", style: { fontSize: 16 } }, c.category), /* @__PURE__ */ React.createElement("span", { className: "ms-meta", style: { marginTop: 0, width: 44, textAlign: "right" } }, Math.round(c.share * 100), "%"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, fontVariantNumeric: "tabular-nums", minWidth: 80, textAlign: "right" } }, fmtMoney(c.total))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Precio por compra"), r.priceTrends.length > 0 ? r.priceTrends.map((p) => {
+        const first = p.prices[0].price, last = p.prices[p.prices.length - 1].price;
+        const change = Math.round((last - first) / first * 100);
+        return /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, p.prices.slice(-5).map((x) => `${fmtMoney(x.price)} (${fmtDay(x.date)})`).join(" → "))), /* @__PURE__ */ React.createElement("span", { className: "ms-meta shrink-0", style: { marginTop: 0, color: change > 0 ? "var(--danger)" : "var(--ink-3)" } }, change > 0 ? "+" : "", change, "%"));
+      }) : /* @__PURE__ */ React.createElement(Note, null, "Para ver cómo cambia el precio hacen falta al menos dos compras con precio del mismo producto.")), r.beforeLog.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Antes del historial · ", r.beforeLog.length), /* @__PURE__ */ React.createElement(Note, null, "De estos solo se sabe la última compra y el último precio; no alcanza para calcular cada cuánto se acaban."), r.beforeLog.slice(0, 30).map((i) => {
+        const info = lastInfo(i, purchases);
+        return /* @__PURE__ */ React.createElement("div", { key: i.id, className: "ms-row", style: { minHeight: 48 } }, /* @__PURE__ */ React.createElement("span", { className: "flex-1 min-w-0", style: { fontSize: 16 } }, i.name), /* @__PURE__ */ React.createElement("span", { className: "ms-meta shrink-0", style: { marginTop: 0 } }, fmtDay(info.date), info.price !== null && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", fmtMoney(info.price))));
+      }), r.beforeLog.length > 30 && /* @__PURE__ */ React.createElement(Note, null, "Y ", r.beforeLog.length - 30, " más.")));
     };
     const tabCounts = {
       shop: items.filter((i) => i.status === "needed" || i.status === "cart").length,
@@ -1475,7 +1648,10 @@ Reglas:
         if (tab === "shop") setItems(items.map((x) => x.id === i.id ? { ...x, status: i.status === "needed" ? "cart" : "needed" } : x));
         if (i.status === "inactive") setItems(items.map((x) => x.id === i.id ? { ...x, status: "stocked" } : x));
       };
-      return /* @__PURE__ */ React.createElement("div", { key: i.id, "data-item": true, className: `ms-row ${i.status === "cart" ? "is-cart" : ""} ${i.status === "inactive" ? "is-inactive" : ""}` }, tab === "shop" && /* @__PURE__ */ React.createElement("button", { className: "ms-check", onClick: onRowTap, "aria-label": i.status === "cart" ? `Quitar ${i.name} del carrito` : `Marcar ${i.name} en el carrito`, "aria-pressed": i.status === "cart" }, /* @__PURE__ */ React.createElement("span", null, i.status === "cart" && /* @__PURE__ */ React.createElement(Icon, { name: "Check", size: 14 }))), i.photoUrl && /* @__PURE__ */ React.createElement("img", { src: i.photoUrl, alt: "", loading: "lazy", onClick: () => openView(i), className: "ms-thumb cursor-pointer active:opacity-70" }), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0 cursor-pointer", onClick: onRowTap }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, i.name, i.isEssential && /* @__PURE__ */ React.createElement("span", { className: "ms-meta", style: { marginLeft: 6 }, title: "Esencial" }, "★")), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, [i.category, (i.places || []).filter((p) => p && p !== "General").join(", ")].filter(Boolean).join(" · "), units && tab !== "inv" && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", units), i.price && /* @__PURE__ */ React.createElement(React.Fragment, null, " · $", i.price), i.purchaseAt && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", i.purchaseAt), i.expiry && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", /* @__PURE__ */ React.createElement("span", { className: isCriticalExpired(i) ? "danger" : isSoftExpired(i) ? "warn" : "" }, expiryLabel(i))), flags.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", flags.join(", "))), tab === "inv" && (i.unitCount || i.unitSize ? /* @__PURE__ */ React.createElement("p", { className: "ms-meta", onClick: (e) => {
+      return /* @__PURE__ */ React.createElement("div", { key: i.id, "data-item": true, className: `ms-row ${i.status === "cart" ? "is-cart" : ""} ${i.status === "inactive" ? "is-inactive" : ""}` }, tab === "shop" && /* @__PURE__ */ React.createElement("button", { className: "ms-check", onClick: onRowTap, "aria-label": i.status === "cart" ? `Quitar ${i.name} del carrito` : `Marcar ${i.name} en el carrito`, "aria-pressed": i.status === "cart" }, /* @__PURE__ */ React.createElement("span", null, i.status === "cart" && /* @__PURE__ */ React.createElement(Icon, { name: "Check", size: 14 }))), i.photoUrl && /* @__PURE__ */ React.createElement("img", { src: i.photoUrl, alt: "", loading: "lazy", onClick: () => openView(i), className: "ms-thumb cursor-pointer active:opacity-70" }), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0 cursor-pointer", onClick: onRowTap }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, i.name, i.isEssential && /* @__PURE__ */ React.createElement("span", { className: "ms-meta", style: { marginLeft: 6 }, title: "Esencial" }, "★")), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, [i.category, (i.places || []).filter((p) => p && p !== "General").join(", ")].filter(Boolean).join(" · "), units && tab !== "inv" && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", units), tab === "shop" ? (() => {
+        const li = lastInfo(i, purchases);
+        return li.price !== null ? /* @__PURE__ */ React.createElement(React.Fragment, null, " · la última vez ", fmtMoney(li.price), li.priceDate ? ` (${fmtDay(li.priceDate)})` : "") : null;
+      })() : i.price && /* @__PURE__ */ React.createElement(React.Fragment, null, " · $", i.price), i.purchaseAt && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", i.purchaseAt), i.expiry && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", /* @__PURE__ */ React.createElement("span", { className: isCriticalExpired(i) ? "danger" : isSoftExpired(i) ? "warn" : "" }, expiryLabel(i))), flags.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", flags.join(", "))), tab === "inv" && (i.unitCount || i.unitSize ? /* @__PURE__ */ React.createElement("p", { className: "ms-meta", onClick: (e) => {
         e.stopPropagation();
         openEdit(i);
       } }, units) : /* @__PURE__ */ React.createElement(
@@ -1507,8 +1683,9 @@ Reglas:
       const fs = e.target.files;
       if (fs && fs.length) handleBulkPhotoAdd(fs);
       e.target.value = "";
-    } })), /* @__PURE__ */ React.createElement("button", { onClick: addItem, disabled: !name, "aria-label": "Agregar", className: "ms-icon-btn -mr-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "Plus", size: 22 }))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "ms-mast-meta shrink-0", style: { fontSize: 13 } }, "Lugar"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 overflow-x-auto no-scrollbar items-center flex-1 min-w-0", "data-hscroll": true }, savedTags.map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => toggleTag(t), "aria-pressed": selTags.includes(t), className: "ms-toggle" }, t)), /* @__PURE__ */ React.createElement("input", { value: tagInput, onChange: (e) => setTagInput(e.target.value), onBlur: addTag, onKeyDown: (e) => e.key === "Enter" && addTag(), placeholder: "+ lugar", "aria-label": "Nuevo lugar", className: "bg-transparent outline-none shrink-0 py-2", style: { width: 72, fontSize: 14, color: "var(--paper)" } })))), /* @__PURE__ */ React.createElement("div", { className: "ms-tabs shrink-0", role: "tablist" }, [{ id: "shop", l: "Lista" }, { id: "inv", l: "Casa" }, { id: "hist", l: "Historial" }].map((x) => /* @__PURE__ */ React.createElement("button", { key: x.id, "data-tab": x.id, role: "tab", "aria-selected": tab === x.id, onClick: () => setTab(x.id), className: "ms-tab" }, x.l, /* @__PURE__ */ React.createElement("span", { className: "ms-count" }, tabCounts[x.id])))), /* @__PURE__ */ React.createElement("div", { "data-testid": "scroll", className: "ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" }, /* @__PURE__ */ React.createElement("div", { className: "ms-tools" }, tab === "shop" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 overflow-x-auto no-scrollbar items-center", "data-hscroll": true }, /* @__PURE__ */ React.createElement("span", { className: "shrink-0", style: { fontSize: 13, color: "var(--ink-3)" } }, "Ver"), /* @__PURE__ */ React.createElement("button", { onClick: () => setFilter("Todos"), "aria-pressed": filter === "Todos", className: "ms-toggle" }, "Todos"), savedTags.filter((x) => x !== "General").map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setFilter(t), "aria-pressed": filter === t, className: "ms-toggle" }, t))), tab === "inv" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 overflow-x-auto no-scrollbar", "data-hscroll": true }, /* @__PURE__ */ React.createElement("button", { onClick: () => setInvFilter("Todos"), "aria-pressed": invFilter === "Todos", className: "ms-toggle" }, "Todos"), /* @__PURE__ */ React.createElement("button", { onClick: () => setInvFilter("MariKondo"), "aria-pressed": invFilter === "MariKondo", className: "ms-toggle" }, "Mari Kondo"), categories.map((c) => /* @__PURE__ */ React.createElement("button", { key: c, onClick: () => setInvFilter(c), "aria-pressed": invFilter === c, className: "ms-toggle" }, c)), /* @__PURE__ */ React.createElement("button", { onClick: () => setInvFilter("Agotados"), "aria-pressed": invFilter === "Agotados", className: "ms-toggle" }, "Agotados")), (tab === "inv" || tab === "shop") && /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 items-center mt-1" }, /* @__PURE__ */ React.createElement("label", { className: "ms-search" }, /* @__PURE__ */ React.createElement(Icon, { name: "Search", size: 16 }), /* @__PURE__ */ React.createElement("input", { value: searchQuery, onChange: (e) => setSearchQuery(e.target.value), placeholder: "Buscar", "aria-label": "Buscar" }), searchQuery && /* @__PURE__ */ React.createElement("button", { onClick: () => setSearchQuery(""), "aria-label": "Borrar búsqueda", className: "ms-icon-btn -mr-2", style: { width: 32, height: 32 } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 16 }))), /* @__PURE__ */ React.createElement("select", { value: sortBy, onChange: (e) => setSortBy(e.target.value), "aria-label": "Ordenar", className: "ms-select" }, /* @__PURE__ */ React.createElement("option", { value: "name" }, "A-Z"), /* @__PURE__ */ React.createElement("option", { value: "recent" }, "Recientes"), /* @__PURE__ */ React.createElement("option", { value: "expiry" }, "Caducidad"), /* @__PURE__ */ React.createElement("option", { value: "price" }, "Precio")), /* @__PURE__ */ React.createElement("button", { onClick: () => setGroupByPlace(!groupByPlace), "aria-pressed": groupByPlace, "aria-label": tab === "shop" ? "Agrupar por categoría" : "Agrupar por lugar", title: tab === "shop" ? "Agrupar por categoría" : "Agrupar por lugar", className: "ms-icon-btn -mr-2", style: { color: groupByPlace ? "var(--ink)" : "var(--ink-3)", background: groupByPlace ? "var(--paper-2)" : "transparent" } }, /* @__PURE__ */ React.createElement(Icon, { name: "Layers", size: 18 }))), (tab === "inv" || tab === "hist" || tab === "shop") && /* @__PURE__ */ React.createElement("div", { className: "flex justify-end gap-5 -mb-1" }, tab === "shop" && list.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: shareList, className: "ms-link flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icon, { name: "Share", size: 15 }), " Compartir lista"), tab !== "shop" && /* @__PURE__ */ React.createElement("button", { onClick: handleExportCSV, className: "ms-link" }, "Exportar CSV"), tab === "inv" && /* @__PURE__ */ React.createElement("label", { className: "ms-link cursor-pointer" }, "Importar CSV", /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".csv", onChange: handleImportCSV, className: "hidden" })))), invFilter === "MariKondo" && tab === "inv" && list.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "ms-note" }, /* @__PURE__ */ React.createElement("strong", null, list.length), " candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses."), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid var(--rule)" } }, groupedList ? groupedList.flatMap(([g, gitems]) => [/* @__PURE__ */ React.createElement("div", { key: "_g_" + g, className: "ms-group" }, g, " · ", gitems.length), ...gitems.map(renderItem)]) : list.map(renderItem)), !list.length && /* @__PURE__ */ React.createElement("div", { className: "ms-empty" }, searchQuery.trim() ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Nada coincide con “", searchQuery.trim(), "”.") : tab === "shop" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Tu lista está vacía.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, "Escribe arriba lo que falta o usa el micrófono.")) : tab === "hist" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Aún no hay compras registradas.") : invFilter === "MariKondo" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Nada que mari-kondear.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "No hay nada aquí todavía.")), /* @__PURE__ */ React.createElement("div", { style: { height: 24 }, "aria-hidden": "true" })), (undoSnapshot || notice || showCheckout) && /* @__PURE__ */ React.createElement("div", { className: "ms-dock shrink-0", "data-dock": true }, undoSnapshot && /* @__PURE__ */ React.createElement("div", { className: "ms-toast", role: "status" }, /* @__PURE__ */ React.createElement("span", null, undoSnapshot.label), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    } })), /* @__PURE__ */ React.createElement("button", { onClick: addItem, disabled: !name, "aria-label": "Agregar", className: "ms-icon-btn -mr-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "Plus", size: 22 }))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "ms-mast-meta shrink-0", style: { fontSize: 13 } }, "Lugar"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 overflow-x-auto no-scrollbar items-center flex-1 min-w-0", "data-hscroll": true }, savedTags.map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => toggleTag(t), "aria-pressed": selTags.includes(t), className: "ms-toggle" }, t)), /* @__PURE__ */ React.createElement("input", { value: tagInput, onChange: (e) => setTagInput(e.target.value), onBlur: addTag, onKeyDown: (e) => e.key === "Enter" && addTag(), placeholder: "+ lugar", "aria-label": "Nuevo lugar", className: "bg-transparent outline-none shrink-0 py-2", style: { width: 72, fontSize: 14, color: "var(--paper)" } })))), /* @__PURE__ */ React.createElement("div", { className: "ms-tabs shrink-0", role: "tablist" }, [{ id: "shop", l: "Lista" }, { id: "inv", l: "Casa" }, { id: "hist", l: "Historial" }].map((x) => /* @__PURE__ */ React.createElement("button", { key: x.id, "data-tab": x.id, role: "tab", "aria-selected": tab === x.id, onClick: () => setTab(x.id), className: "ms-tab" }, x.l, /* @__PURE__ */ React.createElement("span", { className: "ms-count" }, tabCounts[x.id])))), /* @__PURE__ */ React.createElement("div", { "data-testid": "scroll", className: "ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" }, /* @__PURE__ */ React.createElement("div", { className: "ms-tools" }, tab === "hist" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-5 items-center", role: "tablist" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setHistView("compras"), "aria-pressed": histView === "compras", className: "ms-toggle" }, "Compras"), /* @__PURE__ */ React.createElement("button", { onClick: () => setHistView("rend"), "aria-pressed": histView === "rend", className: "ms-toggle" }, "Rendimientos")), tab === "shop" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 overflow-x-auto no-scrollbar items-center", "data-hscroll": true }, /* @__PURE__ */ React.createElement("span", { className: "shrink-0", style: { fontSize: 13, color: "var(--ink-3)" } }, "Ver"), /* @__PURE__ */ React.createElement("button", { onClick: () => setFilter("Todos"), "aria-pressed": filter === "Todos", className: "ms-toggle" }, "Todos"), savedTags.filter((x) => x !== "General").map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setFilter(t), "aria-pressed": filter === t, className: "ms-toggle" }, t))), tab === "inv" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 overflow-x-auto no-scrollbar", "data-hscroll": true }, /* @__PURE__ */ React.createElement("button", { onClick: () => setInvFilter("Todos"), "aria-pressed": invFilter === "Todos", className: "ms-toggle" }, "Todos"), /* @__PURE__ */ React.createElement("button", { onClick: () => setInvFilter("MariKondo"), "aria-pressed": invFilter === "MariKondo", className: "ms-toggle" }, "Mari Kondo"), categories.map((c) => /* @__PURE__ */ React.createElement("button", { key: c, onClick: () => setInvFilter(c), "aria-pressed": invFilter === c, className: "ms-toggle" }, c)), /* @__PURE__ */ React.createElement("button", { onClick: () => setInvFilter("Agotados"), "aria-pressed": invFilter === "Agotados", className: "ms-toggle" }, "Agotados")), (tab === "inv" || tab === "shop") && /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 items-center mt-1" }, /* @__PURE__ */ React.createElement("label", { className: "ms-search" }, /* @__PURE__ */ React.createElement(Icon, { name: "Search", size: 16 }), /* @__PURE__ */ React.createElement("input", { value: searchQuery, onChange: (e) => setSearchQuery(e.target.value), placeholder: "Buscar", "aria-label": "Buscar" }), searchQuery && /* @__PURE__ */ React.createElement("button", { onClick: () => setSearchQuery(""), "aria-label": "Borrar búsqueda", className: "ms-icon-btn -mr-2", style: { width: 32, height: 32 } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 16 }))), /* @__PURE__ */ React.createElement("select", { value: sortBy, onChange: (e) => setSortBy(e.target.value), "aria-label": "Ordenar", className: "ms-select" }, /* @__PURE__ */ React.createElement("option", { value: "name" }, "A-Z"), /* @__PURE__ */ React.createElement("option", { value: "recent" }, "Recientes"), /* @__PURE__ */ React.createElement("option", { value: "expiry" }, "Caducidad"), /* @__PURE__ */ React.createElement("option", { value: "price" }, "Precio")), /* @__PURE__ */ React.createElement("button", { onClick: () => setGroupByPlace(!groupByPlace), "aria-pressed": groupByPlace, "aria-label": tab === "shop" ? "Agrupar por categoría" : "Agrupar por lugar", title: tab === "shop" ? "Agrupar por categoría" : "Agrupar por lugar", className: "ms-icon-btn -mr-2", style: { color: groupByPlace ? "var(--ink)" : "var(--ink-3)", background: groupByPlace ? "var(--paper-2)" : "transparent" } }, /* @__PURE__ */ React.createElement(Icon, { name: "Layers", size: 18 }))), (tab === "inv" || tab === "hist" || tab === "shop") && /* @__PURE__ */ React.createElement("div", { className: "flex justify-end gap-5 -mb-1" }, tab === "shop" && list.length > 0 && /* @__PURE__ */ React.createElement("button", { onClick: shareList, className: "ms-link flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icon, { name: "Share", size: 15 }), " Compartir lista"), tab !== "shop" && !(tab === "hist" && histView === "rend") && /* @__PURE__ */ React.createElement("button", { onClick: handleExportCSV, className: "ms-link" }, "Exportar CSV"), tab === "inv" && /* @__PURE__ */ React.createElement("label", { className: "ms-link cursor-pointer" }, "Importar CSV", /* @__PURE__ */ React.createElement("input", { type: "file", accept: ".csv", onChange: handleImportCSV, className: "hidden" })))), tab === "hist" && histView === "rend" ? renderRendimientos() : /* @__PURE__ */ React.createElement(React.Fragment, null, invFilter === "MariKondo" && tab === "inv" && list.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "ms-note" }, /* @__PURE__ */ React.createElement("strong", null, list.length), " candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses."), /* @__PURE__ */ React.createElement("div", { style: { borderTop: "1px solid var(--rule)" } }, groupedList ? groupedList.flatMap(([g, gitems]) => [/* @__PURE__ */ React.createElement("div", { key: "_g_" + g, className: "ms-group" }, g, " · ", gitems.length), ...gitems.map(renderItem)]) : list.map(renderItem)), !list.length && /* @__PURE__ */ React.createElement("div", { className: "ms-empty" }, searchQuery.trim() ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Nada coincide con “", searchQuery.trim(), "”.") : tab === "shop" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Tu lista está vacía.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, "Escribe arriba lo que falta o usa el micrófono.")) : tab === "hist" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Aún no hay compras registradas.") : invFilter === "MariKondo" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Nada que mari-kondear.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "No hay nada aquí todavía."))), /* @__PURE__ */ React.createElement("div", { style: { height: 24 }, "aria-hidden": "true" })), (undoSnapshot || notice || showCheckout) && /* @__PURE__ */ React.createElement("div", { className: "ms-dock shrink-0", "data-dock": true }, undoSnapshot && /* @__PURE__ */ React.createElement("div", { className: "ms-toast", role: "status" }, /* @__PURE__ */ React.createElement("span", null, undoSnapshot.label), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setItems(undoSnapshot.items);
+      if (undoSnapshot.purchases) setPurchases(undoSnapshot.purchases);
       setUndoSnapshot(null);
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     }, className: "ms-link-strong" }, "Deshacer")), notice && !undoSnapshot && /* @__PURE__ */ React.createElement("div", { className: "ms-toast", role: "status" }, /* @__PURE__ */ React.createElement("span", null, notice)), showCheckout && /* @__PURE__ */ React.createElement("button", { onClick: requestCheckout, className: "ms-btn ms-btn-accent justify-between" }, /* @__PURE__ */ React.createElement("span", null, "Finalizar compra"), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2 font-normal" }, cartCount, " en el carrito ", /* @__PURE__ */ React.createElement(Icon, { name: "ArrowRight", size: 18 })))), confirmData.isOpen && /* @__PURE__ */ React.createElement(

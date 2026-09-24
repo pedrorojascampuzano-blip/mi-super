@@ -32,7 +32,7 @@ export const launch = () => puppeteer.launch({ executablePath: CHROME, headless:
 
 // Abre la app en emulación iPhone con los datos dados en localStorage (modo local).
 // Nunca toca Supabase: cualquier request a *.supabase.co se aborta.
-export const openApp = async (browser, url, { items = [], extra = {}, safeArea = null } = {}) => {
+export const openApp = async (browser, url, { items = [], extra = {}, safeArea = null, mock = {} } = {}) => {
     const page = await browser.newPage();
     await page.setUserAgent(UA);
     await page.setViewport(IPHONE);
@@ -42,7 +42,12 @@ export const openApp = async (browser, url, { items = [], extra = {}, safeArea =
     page.on('pageerror', (e) => errors.push(String(e)));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     await page.setRequestInterception(true);
-    page.on('request', (r) => (r.url().includes('.supabase.co') && !r.url().includes('supabase-js')) ? r.abort() : r.continue());
+    // mock = { 'fragmento-de-url': cuerpoJSON } responde sin salir a la red (p. ej. la API de Gemini).
+    page.on('request', (r) => {
+        const hit = Object.keys(mock).find((k) => r.url().includes(k));
+        if (hit) return r.respond({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' }, body: JSON.stringify(mock[hit]) });
+        return (r.url().includes('.supabase.co') && !r.url().includes('supabase-js')) ? r.abort() : r.continue();
+    });
     await page.evaluateOnNewDocument((items, extra) => {
         window.__MS_TEST__ = true;
         window.alert = (m) => console.log('[alert] ' + m);

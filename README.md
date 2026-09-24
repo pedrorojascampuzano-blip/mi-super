@@ -29,6 +29,7 @@ También puedes usar DeepSeek (solo para texto) desde [platform.deepseek.com/api
 - "Chef" sugiere receta con lo que tienes en casa
 - Marcar esenciales: cuando se acaban, regresan automáticamente a la lista
 - Exportar/importar CSV para respaldo
+- Rendimientos (Historial → Rendimientos): cada cuánto se acaba cada producto, gasto por mes y por categoría, precio por compra y lo que está por acabarse. Se alimenta de cada Finalizar compra y cada ticket desde v25.
 
 ## Lista compartida con amigos (opcional)
 
