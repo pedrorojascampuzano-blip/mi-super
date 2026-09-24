@@ -13,7 +13,8 @@ const results = [];
 for (const [vpName, vp] of Object.entries(VIEWPORTS)) {
     for (const [stName, open] of Object.entries(STATES)) {
         const st = stName === 'Lista' ? items.map((i) => (i.status === 'cart' ? { ...i, status: 'needed' } : i)) : items;
-        const { page, errors } = await openApp(browser, url, { items: st, safeArea: vp.safeArea });
+        if (process.env.HUNT_VERBOSE) console.error(`… ${vpName} · ${stName}`);
+        const { page, errors } = await openApp(browser, url, { items: st, safeArea: vp.safeArea, extra: { nav_variant: process.env.NAV || 'actual' } });
         await open(page); await wait(250);
         if (vp.vh !== 844) { await page.evaluate(() => document.querySelector('input:not([type=file])')?.focus()); await setVisualViewport(page, vp.vh); await wait(200); }
         let issues;
@@ -29,6 +30,6 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) {
 await browser.close(); server?.srv.close();
 const bad = results.filter((r) => r.issues.length);
 for (const r of bad) console.log(`\n✗ ${r.state} · ${r.viewport}\n  - ${r.issues.join('\n  - ')}`);
-console.log(`\n${results.length - bad.length}/${results.length} estados limpios`);
+console.log(`\n[nav ${process.env.NAV || 'actual'}] ${results.length - bad.length}/${results.length} estados limpios`);
 if (out) fs.writeFileSync(path.join(out, 'hunt.json'), JSON.stringify(results, null, 1));
 process.exitCode = bad.length ? 1 : 0;

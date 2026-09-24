@@ -18,6 +18,7 @@ export const STATES = {
     'Rendimientos sin historial': run(() => { __ms.setTab('hist'); __ms.setHistView('rend'); }),
     'Rendimientos con historial de ejemplo': async (page) => { await page.evaluate((log) => { __ms.setPurchases(log); __ms.setTab('hist'); __ms.setHistView('rend'); }, exampleLog()); },
     'Modal Ajustes': run(() => __ms.setModal('settings')),
+    'Hoja Agregar': run(() => __ms.setAddOpen(true)),
     'Modal Editar': run(() => __ms.openEdit(__ms.items[1])),
     'Modal Dictado con resultado largo': async (page) => { await page.evaluate(() => __ms.setModal('dictate')); await page.evaluate((L) => __ms.setResult(L), LONG); },
     'Modal Chef con receta larga': async (page) => { await page.evaluate(() => __ms.setModal('chef')); await page.evaluate((L) => __ms.setResult(L), LONG); },

@@ -90,6 +90,23 @@
         .ms-dock { background: var(--paper); border-top: 1px solid var(--rule); padding: 10px var(--gutter) calc(10px + var(--sab)); display: flex; flex-direction: column; gap: 8px; }
         .ms-toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--ink-2); min-height: 40px; }
 
+        /* Navegación inferior (variantes de prueba A/B/C) */
+        .ms-bottomnav { background: var(--paper); border-top: 1px solid var(--rule); padding: 0 8px var(--sab); display: flex; align-items: stretch; }
+        .ms-navbtn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 54px; font-size: 11px; color: var(--ink-3); }
+        .ms-navbtn[aria-current="page"] { color: var(--ink); font-weight: 600; }
+        .ms-navbtn .ms-count { margin: 0; font-size: 11px; }
+        .ms-navadd { flex: 1; display: flex; align-items: center; justify-content: center; }
+        .ms-navadd span { width: 48px; height: 48px; border-radius: 24px; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: center; }
+        .ms-seg { display: flex; flex: 1; min-width: 0; background: var(--paper-2); border-radius: 10px; padding: 3px; }
+        .ms-seg button { flex: 1; min-height: 40px; border-radius: 8px; font-size: 14px; color: var(--ink-2); }
+        .ms-seg button[aria-selected="true"] { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--rule); }
+        .ms-dock.over-nav { padding-bottom: 10px; }
+        .ms-add.on-paper { border: 1px solid var(--rule); border-radius: 10px; background: #fff; margin: 0; padding-left: 12px; }
+        .ms-add.on-paper input { color: var(--ink); }
+        .ms-add.on-paper input::placeholder { color: var(--ink-3); }
+        .ms-composer { background: var(--paper); border-top: 1px solid var(--rule); padding: 8px var(--gutter) calc(8px + var(--sab)); }
+        .ms-composer.kb { padding-bottom: 8px; }
+
         /* Botones */
         .ms-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 10px; font-size: 16px; font-weight: 600; width: 100%; }
         .ms-btn-primary { background: var(--ink); color: var(--paper); }

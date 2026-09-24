@@ -39,7 +39,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '25';
+const APP_VERSION = '26';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -127,6 +127,26 @@ const SuperApp = () => {
     // Historial de compras (nuevo en v25). Solo se agrega; vive en este dispositivo.
     const [purchases, setPurchases] = useState(() => { try { return JSON.parse(localStorage.getItem('purchases_v1')) || []; } catch { return []; } });
     const [histView, setHistView] = useState('compras');
+    // Navegación: 'actual' (v24) o variantes de prueba 'a' | 'b' | 'c'. ?nav=x en la URL la fija.
+    const [navVariant, setNavVariant] = useState(() => {
+        try {
+            const q = new URLSearchParams(location.search).get('nav');
+            if (q && ['actual','a','b','c'].includes(q)) { localStorage.setItem('nav_variant', q); return q; }
+            return localStorage.getItem('nav_variant') || 'actual';
+        } catch { return 'actual'; }
+    });
+    useEffect(() => { try { localStorage.setItem('nav_variant', navVariant); } catch {} }, [navVariant]);
+    const [addOpen, setAddOpen] = useState(false);
+    const [recentlyAdded, setRecentlyAdded] = useState([]);
+    useEffect(() => { if (!addOpen) setRecentlyAdded([]); }, [addOpen]);
+    // Teclado abierto: el visualViewport se encoge bastante respecto a la ventana.
+    const [kbOpen, setKbOpen] = useState(false);
+    useEffect(() => {
+        const vv = window.visualViewport; if (!vv) return;
+        const check = () => setKbOpen(window.innerHeight - vv.height > 150);
+        vv.addEventListener('resize', check); check();
+        return () => vv.removeEventListener('resize', check);
+    }, []);
     const [notice, setNotice] = useState(null);
     const noticeTimerRef = useRef(null);
     const showToast = (msg) => { setNotice(msg); clearTimeout(noticeTimerRef.current); noticeTimerRef.current = setTimeout(() => setNotice(null), 2500); };
@@ -783,6 +803,7 @@ const SuperApp = () => {
             newItem.expiryType = inferExpiryType(newItem) || '';
             setItems([...items, newItem]);
         }
+        if (addOpen) setRecentlyAdded(r => [...r, name.trim()].slice(-4));
         setName(''); setSelTags(['General']);
     };
     
@@ -1283,7 +1304,7 @@ Reglas:
     const toggleListening = () => { if(isListening && recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); } else startListening(); };
 
     // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, items };
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setNavVariant, setAddOpen, items };
 
     const modalFooter = () => {
         if (modal === 'edit' && editItem) return <button onClick={saveEdit} className="ms-btn ms-btn-primary">Guardar cambios</button>;
@@ -1486,59 +1507,94 @@ Reglas:
         );
     };
 
+    const isNav = (v) => navVariant === v;
+    const hasBottomNav = (isNav('a') || isNav('c')) && !kbOpen;
+    const addPlaceholder = tab==='inv' ? "Agregar a Casa…" : "¿Qué falta?";
+
+    const mastTop = (
+        <>
+            {updateReady && (
+                <div className="flex items-center justify-between gap-3 mb-2 text-sm">
+                    <span>Hay una versión nueva.</span>
+                    <button onClick={applyUpdate} className="ms-link-strong" style={{color:'var(--paper)'}}>Recargar</button>
+                </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                    <h1 className="serif" style={{fontSize:26, lineHeight:1.1, fontWeight:500}}>Mi Súper</h1>
+                    <p className="ms-mast-meta flex items-center gap-1.5 mt-0.5">
+                        {cloudMode && <>
+                            <span aria-hidden="true" style={{width:6,height:6,borderRadius:3,background: syncStatus==='online' ? '#7fb08f' : syncStatus==='connecting' ? '#c9a25b' : '#c7706a'}}></span>
+                            <span className="truncate">{groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}</span>
+                            <span>·</span>
+                        </>}
+                        <button onClick={hardRefresh} title="Limpiar cache y recargar" className="py-1">v{APP_VERSION} · <span className="underline">refrescar</span></button>
+                    </p>
+                </div>
+                <nav className="flex items-center -mr-2" aria-label="Herramientas">
+                    <label className="ms-icon-btn" aria-label="Leer ticket"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
+                    <button onClick={()=>{setModal('dictate'); setResult(null)}} aria-label="Dictar" className="ms-icon-btn"><Icon name="Mic"/></button>
+                    <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} aria-label="Chef" className="ms-icon-btn"><Icon name="Chef"/></button>
+                    <button onClick={()=>setModal('suggest')} aria-label="Sugerencias" className="ms-icon-btn"><Icon name="Sparkles"/></button>
+                    <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-icon-btn"><Icon name="Settings"/></button>
+                </nav>
+            </div>
+        </>
+    );
+
+    const addField = (onPaper, autoFocus) => (
+        <div className={`ms-add ${onPaper ? 'on-paper' : ''}`}>
+            <input value={name} autoFocus={autoFocus} onChange={e=>setName(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter' && !e.nativeEvent.isComposing) addItem(e); }} enterKeyHint="done" placeholder={addPlaceholder} aria-label={tab==='inv'?'Agregar a Casa':'Agregar a la lista'}/>
+            <label className="ms-icon-btn" aria-label="Agregar con foto" title="Tomar foto o elegir varias del rollo">
+                <Icon name="Camera"/>
+                <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
+            </label>
+            <button onClick={addItem} disabled={!name} aria-label="Agregar" className={`ms-icon-btn ${onPaper ? '' : '-mr-2'}`}><Icon name="Plus" size={22}/></button>
+        </div>
+    );
+
+    const placeRow = (onPaper) => (
+        <div className="flex items-center gap-3">
+            <span className={onPaper ? 'shrink-0' : 'ms-mast-meta shrink-0'} style={{fontSize:13, color: onPaper ? 'var(--ink-3)' : undefined}}>Lugar</span>
+            <div className="flex gap-4 overflow-x-auto no-scrollbar items-center flex-1 min-w-0" data-hscroll>
+                {savedTags.map(t=>(<button key={t} onClick={()=>toggleTag(t)} aria-pressed={selTags.includes(t)} className="ms-toggle">{t}</button>))}
+                <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="+ lugar" aria-label="Nuevo lugar" className="bg-transparent outline-none shrink-0 py-2" style={{width:72, fontSize:14, color: onPaper ? 'var(--ink)' : 'var(--paper)'}}/>
+            </div>
+        </div>
+    );
+
+    const TABS = [{id:'shop',l:'Lista',icon:'ShoppingBag'},{id:'inv',l:'Casa',icon:'Home'},{id:'hist',l:'Historial',icon:'History'}];
+    const tabsTop = (
+        <div className="ms-tabs shrink-0" role="tablist">
+            {TABS.map(x=>(
+                <button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)} className="ms-tab">{x.l}<span className="ms-count">{tabCounts[x.id]}</span></button>
+            ))}
+        </div>
+    );
+
+    // Swipe lateral entre pestañas (variante B). Ignora las filas que ya se desplazan a lo ancho.
+    const swipe = useRef(null);
+    const onTouchStart = (e) => { if (!isNav('b') || e.target.closest('[data-hscroll],input,textarea,select')) { swipe.current = null; return; } const t = e.touches[0]; swipe.current = { x: t.clientX, y: t.clientY }; };
+    const onTouchEnd = (e) => {
+        const st = swipe.current; swipe.current = null;
+        if (!st) return;
+        const t = e.changedTouches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+        if (Math.abs(dx) < 70 || Math.abs(dy) > 45) return;
+        const order = TABS.map(x => x.id), i = order.indexOf(tab);
+        const next = order[Math.max(0, Math.min(order.length - 1, i + (dx < 0 ? 1 : -1)))];
+        if (next !== tab) setTab(next);
+    };
+
     return (
-        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}}>
+        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}} data-nav={navVariant}>
             <header className="ms-mast shrink-0 z-10">
-                {updateReady && (
-                    <div className="flex items-center justify-between gap-3 mb-2 text-sm">
-                        <span>Hay una versión nueva.</span>
-                        <button onClick={applyUpdate} className="ms-link-strong" style={{color:'var(--paper)'}}>Recargar</button>
-                    </div>
-                )}
-                <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                        <h1 className="serif" style={{fontSize:26, lineHeight:1.1, fontWeight:500}}>Mi Súper</h1>
-                        <p className="ms-mast-meta flex items-center gap-1.5 mt-0.5">
-                            {cloudMode && <>
-                                <span aria-hidden="true" style={{width:6,height:6,borderRadius:3,background: syncStatus==='online' ? '#7fb08f' : syncStatus==='connecting' ? '#c9a25b' : '#c7706a'}}></span>
-                                <span className="truncate">{groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}</span>
-                                <span>·</span>
-                            </>}
-                            <button onClick={hardRefresh} title="Limpiar cache y recargar" className="py-1">v{APP_VERSION} · <span className="underline">refrescar</span></button>
-                        </p>
-                    </div>
-                    <nav className="flex items-center -mr-2" aria-label="Herramientas">
-                        <label className="ms-icon-btn" aria-label="Leer ticket"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
-                        <button onClick={()=>{setModal('dictate'); setResult(null)}} aria-label="Dictar" className="ms-icon-btn"><Icon name="Mic"/></button>
-                        <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} aria-label="Chef" className="ms-icon-btn"><Icon name="Chef"/></button>
-                        <button onClick={()=>setModal('suggest')} aria-label="Sugerencias" className="ms-icon-btn"><Icon name="Sparkles"/></button>
-                        <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-icon-btn"><Icon name="Settings"/></button>
-                    </nav>
-                </div>
-                <div className="ms-add">
-                    <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter' && !e.nativeEvent.isComposing) addItem(e); }} enterKeyHint="done" placeholder={tab==='inv'?"Agregar a Casa…":"¿Qué falta?"} aria-label={tab==='inv'?'Agregar a Casa':'Agregar a la lista'}/>
-                    <label className="ms-icon-btn" aria-label="Agregar con foto" title="Tomar foto o elegir varias del rollo">
-                        <Icon name="Camera"/>
-                        <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
-                    </label>
-                    <button onClick={addItem} disabled={!name} aria-label="Agregar" className="ms-icon-btn -mr-2"><Icon name="Plus" size={22}/></button>
-                </div>
-                <div className="flex items-center gap-3">
-                <span className="ms-mast-meta shrink-0" style={{fontSize:13}}>Lugar</span>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar items-center flex-1 min-w-0" data-hscroll>
-                    {savedTags.map(t=>(<button key={t} onClick={()=>toggleTag(t)} aria-pressed={selTags.includes(t)} className="ms-toggle">{t}</button>))}
-                    <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="+ lugar" aria-label="Nuevo lugar" className="bg-transparent outline-none shrink-0 py-2" style={{width:72, fontSize:14, color:'var(--paper)'}}/>
-                </div>
-                </div>
+                {mastTop}
+                {(isNav('actual')) && <>{addField(false)}{placeRow(false)}</>}
             </header>
 
-            <div className="ms-tabs shrink-0" role="tablist">
-                {[{id:'shop',l:'Lista'},{id:'inv',l:'Casa'},{id:'hist',l:'Historial'}].map(x=>(
-                    <button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)} className="ms-tab">{x.l}<span className="ms-count">{tabCounts[x.id]}</span></button>
-                ))}
-            </div>
+            {(isNav('actual') || isNav('b')) && tabsTop}
 
-            <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
                 <div className="ms-tools">
                     {tab==='hist' && (
                         <div className="flex gap-5 items-center" role="tablist">
@@ -1600,7 +1656,7 @@ Reglas:
                 {!list.length && (
                     <div className="ms-empty">
                         {searchQuery.trim() ? <>Nada coincide con “{searchQuery.trim()}”.</>
-                            : tab==='shop' ? <>Tu lista está vacía.<br/><span style={{fontSize:13}}>Escribe arriba lo que falta o usa el micrófono.</span></>
+                            : tab==='shop' ? <>Tu lista está vacía.<br/><span style={{fontSize:13}}>{isNav('actual') ? 'Escribe arriba lo que falta o usa el micrófono.' : isNav('b') ? 'Escribe abajo lo que falta o usa el micrófono.' : 'Toca + para agregar lo que falta.'}</span></>
                             : tab==='hist' ? <>Aún no hay compras registradas.</>
                             : invFilter==='MariKondo' ? <>Nada que mari-kondear.</>
                             : <>No hay nada aquí todavía.</>}
@@ -1611,7 +1667,7 @@ Reglas:
             </div>
 
             {(undoSnapshot || notice || showCheckout) && (
-                <div className="ms-dock shrink-0" data-dock>
+                <div className={`ms-dock shrink-0 ${hasBottomNav || isNav('b') ? 'over-nav' : ''}`} data-dock>
                     {undoSnapshot && (
                         <div className="ms-toast" role="status">
                             <span>{undoSnapshot.label}</span>
@@ -1626,6 +1682,52 @@ Reglas:
                         </button>
                     )}
                 </div>
+            )}
+
+            {isNav('b') && (
+                <div className={`ms-composer shrink-0 ${kbOpen ? 'kb' : ''}`} data-composer>
+                    {kbOpen && <div className="mb-1">{placeRow(true)}</div>}
+                    {addField(true)}
+                </div>
+            )}
+
+            {hasBottomNav && isNav('a') && (
+                <nav className="ms-bottomnav shrink-0" aria-label="Secciones">
+                    {TABS.slice(0, 2).map(x => (
+                        <button key={x.id} data-tab={x.id} aria-current={tab===x.id ? 'page' : undefined} onClick={()=>setTab(x.id)} className="ms-navbtn"><Icon name={x.icon} size={22}/><span>{x.l} <span className="ms-count">{tabCounts[x.id]}</span></span></button>
+                    ))}
+                    <button onClick={()=>setAddOpen(true)} aria-label="Agregar" className="ms-navadd"><span><Icon name="Plus" size={24}/></span></button>
+                    {TABS.slice(2).map(x => (
+                        <button key={x.id} data-tab={x.id} aria-current={tab===x.id ? 'page' : undefined} onClick={()=>setTab(x.id)} className="ms-navbtn"><Icon name={x.icon} size={22}/><span>{x.l} <span className="ms-count">{tabCounts[x.id]}</span></span></button>
+                    ))}
+                    <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-navbtn"><Icon name="Settings" size={22}/><span>Ajustes</span></button>
+                </nav>
+            )}
+
+            {hasBottomNav && isNav('c') && (
+                <nav className="ms-bottomnav shrink-0 items-center gap-2" style={{padding:'8px var(--gutter) calc(8px + var(--sab))'}} aria-label="Secciones">
+                    <div className="ms-seg" role="tablist">
+                        {TABS.map(x => (
+                            <button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)}>{x.l}</button>
+                        ))}
+                    </div>
+                    <button onClick={()=>setAddOpen(true)} aria-label="Agregar" className="ms-navadd" style={{flex:'0 0 auto'}}><span><Icon name="Plus" size={24}/></span></button>
+                </nav>
+            )}
+
+            {addOpen && (
+                <Sheet testid="add" title={tab==='inv' ? 'Agregar a Casa' : 'Agregar a la lista'} onClose={()=>setAddOpen(false)}
+                    footer={<button onClick={()=>setAddOpen(false)} className="ms-btn ms-btn-secondary">Listo</button>}>
+                    <div className="space-y-3">
+                        {addField(true, true)}
+                        {placeRow(true)}
+                        <div className="flex gap-5">
+                            <button onClick={()=>{ setAddOpen(false); setModal('dictate'); setResult(null); }} className="ms-link flex items-center gap-1.5"><Icon name="Mic" size={16}/> Dictar</button>
+                            <label className="ms-link cursor-pointer flex items-center gap-1.5"><Icon name="Camera" size={16}/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setAddOpen(false); handleTicketUpload(e); }}/></label>
+                        </div>
+                        {recentlyAdded.length > 0 && <p className="ms-hint">Agregado: {recentlyAdded.join(', ')}</p>}
+                    </div>
+                </Sheet>
             )}
 
             {confirmData.isOpen && (
@@ -1801,6 +1903,15 @@ Reglas:
 
                         {modal === 'settings' && (
                             <div className="space-y-4">
+                                <section>
+                                    <p className="ms-h">Navegación · prueba</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {[['actual','Actual (arriba)'],['a','A · Pestañas abajo'],['b','B · Escribir abajo'],['c','C · Barra única']].map(([v, l]) => (
+                                            <button key={v} onClick={()=>setNavVariant(v)} aria-pressed={navVariant===v} className={`ms-btn ${navVariant===v ? 'ms-btn-primary' : 'ms-btn-secondary'}`} style={{fontSize:14, minHeight:44}}>{l}</button>
+                                        ))}
+                                    </div>
+                                    <p className="ms-hint">Cambia dónde quedan las pestañas y el botón de agregar. Tus datos no cambian.</p>
+                                </section>
                                 {cloudConfigured && cloudMode && (
                                     <section>
                                         <p className="ms-h">Grupo</p>

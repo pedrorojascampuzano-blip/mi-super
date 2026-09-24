@@ -28,7 +28,7 @@ const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Conte
 export const IPHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
-export const launch = () => puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox'] });
+export const launch = () => puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox'], protocolTimeout: 60000 });
 
 // Abre la app en emulación iPhone con los datos dados en localStorage (modo local).
 // Nunca toca Supabase: cualquier request a *.supabase.co se aborta.
