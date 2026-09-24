@@ -13,7 +13,8 @@ if (!version) throw new Error('APP_VERSION no encontrado en src/app.jsx');
 
 export const compile = () => esbuild.build({
     entryPoints: [path.join(ROOT, 'src/app.jsx')],
-    bundle: false,
+    bundle: true,
+    format: 'iife',
     write: false,
     loader: { '.jsx': 'jsx' },
     jsxFactory: 'React.createElement',

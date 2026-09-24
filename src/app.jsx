@@ -1,6 +1,8 @@
+import { listShareText } from './lib.js';
+
 const { useState, useEffect, useRef } = React;
 
-const Icon = ({ name, size = 18, className = "" }) => {
+const Icon = ({ name, size = 20, className = "" }) => {
     const i = {
         Plus: <path d="M12 5v14M5 12h14" />,
         ShoppingBag: <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z M3 6h18 M16 10a4 4 0 0 1-8 0" />,
@@ -26,16 +28,34 @@ const Icon = ({ name, size = 18, className = "" }) => {
         Search: <><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>,
         Layers: <><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></>,
         AlertTriangle: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
-        Copies: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>
+        Copies: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
+        Share: <><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></>
     };
-    return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{i[name]}</svg>;
+    return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{i[name]}</svg>;
 };
 
 // App version — bumpear cada vez que se publica una versión nueva.
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '23';
+const APP_VERSION = '24';
+
+// Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
+// Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
+const Sheet = ({ title, onClose, footer, children, z = 50, testid }) => (
+    <div className="ms-overlay" style={{ zIndex: z }} onClick={(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}>
+        <div className="ms-sheet" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} data-testid={testid}>
+            {(title || onClose) && (
+                <div className="ms-sheet-head">
+                    <h2 className="serif ms-sheet-title min-w-0">{title}</h2>
+                    {onClose && <button onClick={onClose} aria-label="Cerrar" className="ms-icon-btn" style={{ color: 'var(--ink-2)' }}><Icon name="X" size={22}/></button>}
+                </div>
+            )}
+            {children ? <div className={`ms-sheet-body ${footer ? '' : 'no-foot'}`} data-testid="sheet-body">{children}</div> : null}
+            {footer && <div className="ms-sheet-foot">{footer}</div>}
+        </div>
+    </div>
+);
 
 const hardRefresh = async () => {
     try {
@@ -103,6 +123,9 @@ const SuperApp = () => {
         return `hace ${d} d`;
     };
     const [undoSnapshot, setUndoSnapshot] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const noticeTimerRef = useRef(null);
+    const showToast = (msg) => { setNotice(msg); clearTimeout(noticeTimerRef.current); noticeTimerRef.current = setTimeout(() => setNotice(null), 2500); };
     const undoTimerRef = useRef(null);
     const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded_v1') === '1');
     const [recipeWizard, setRecipeWizard] = useState(null); // { title, steps, step }
@@ -449,7 +472,7 @@ const SuperApp = () => {
                 setUndoSnapshot({ items: snapshot, label: `${count} productos a Casa` });
                 undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5000);
             },
-            actionText: "Finalizar Compra"
+            actionText: "Finalizar compra"
         });
     };
 
@@ -1204,15 +1227,28 @@ Reglas:
     };
     const list = displayItems();
     const showCheckout = tab==='shop' && items.some(i=>i.status==='cart');
+    // Lista: agrupa por categoría (como pasillos del súper). Casa: por lugar.
     const groupedList = React.useMemo(() => {
-        if (!groupByPlace || tab !== 'inv') return null;
+        if (!groupByPlace || tab === 'hist') return null;
         const g = {};
         for (const i of list) {
-            const place = (i.places && i.places[0]) || 'General';
-            (g[place] = g[place] || []).push(i);
+            const key = tab === 'shop' ? (i.category || 'Otros') : ((i.places && i.places[0]) || 'General');
+            (g[key] = g[key] || []).push(i);
         }
         return Object.entries(g).sort(([a],[b]) => a.localeCompare(b, 'es'));
     }, [list, groupByPlace, tab]);
+
+    // Texto plano de lo que falta, agrupado por categoría, para mandarlo por WhatsApp o donde sea.
+    const shareList = async () => {
+        const text = listShareText(items, filter);
+        try {
+            if (navigator.share) await navigator.share({ text });
+            else { await navigator.clipboard.writeText(text); showToast('Lista copiada'); }
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            try { await navigator.clipboard.writeText(text); showToast('Lista copiada'); } catch { alert(text); }
+        }
+    };
 
     // --- AUDIO RECORDING (Browser API) ---
     const startListening = () => {
@@ -1233,399 +1269,395 @@ Reglas:
     };
     const toggleListening = () => { if(isListening && recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); } else startListening(); };
 
-    return (
-        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] bg-white sm:rounded-[30px] shadow-2xl flex flex-col relative overflow-hidden text-gray-800">
-            {updateReady && (
-                <div className="absolute top-0 left-0 right-0 bg-amber-500 text-white px-4 pb-2 text-xs flex justify-between items-center gap-3 z-[70] shadow-md" style={{paddingTop: 'max(44px, calc(env(safe-area-inset-top) + 8px))'}}>
-                    <span className="font-bold flex-1">Hay una versión nueva</span>
-                    <button onClick={applyUpdate} className="bg-white text-amber-700 px-4 py-2 rounded-md font-bold text-[12px] shrink-0">Recargar</button>
-                </div>
-            )}
-            <div className="bg-indigo-600 px-5 pb-4 ios-header text-white rounded-b-[24px] shadow-lg shrink-0 z-10">
-                <div className="flex justify-between items-center mb-4 mt-2">
-                    <div className="flex flex-col">
-                        <h1 className="text-xl font-bold flex items-center gap-2"><Icon name="ShoppingBag"/> Mi Súper</h1>
-                        {cloudMode && (
-                            <p className="text-[10px] text-indigo-200 mt-0.5 flex items-center gap-1">
-                                <span className={`w-1.5 h-1.5 rounded-full ${syncStatus === 'online' ? 'bg-green-400' : syncStatus === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'}`}></span>
-                                {groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}
-                            </p>
-                        )}
-                        <button onClick={hardRefresh} title="Limpiar cache y recargar" className="mt-0.5 py-1 pr-2 text-[9px] text-indigo-200 hover:text-white flex items-center gap-1 active:scale-95 transition self-start">
-                            <span>v{APP_VERSION}</span>
-                            <span>·</span>
-                            <span className="underline">↻ refrescar</span>
-                        </button>
-                    </div>
-                    <div className="flex gap-2">
-                        <label className="p-2 bg-white/20 rounded-full hover:bg-white/30 cursor-pointer"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
-                        <button onClick={()=>{setModal('dictate'); setResult(null)}} className="p-2 bg-white/20 rounded-full"><Icon name="Mic"/></button>
-                        <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} className="p-2 bg-white/20 rounded-full"><Icon name="Chef"/></button>
-                        <button onClick={()=>setModal('suggest')} className="p-2 bg-white/20 rounded-full"><Icon name="Sparkles"/></button>
-                        <button onClick={()=>setModal('settings')} className="p-2 bg-white/20 rounded-full"><Icon name="Settings"/></button>
-                    </div>
-                </div>
-                <div className="bg-white/10 backdrop-blur p-2 rounded-xl border border-white/20">
-                    <div className="flex gap-2 mb-2 items-center">
-                        <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter' && !e.nativeEvent.isComposing) addItem(e); }} enterKeyHint="done" placeholder={tab==='inv'?"Agregar a Casa...":"¿Qué falta?"} className="bg-transparent w-full text-white placeholder-indigo-200 outline-none font-medium"/>
-                        <label className="bg-emerald-400 text-emerald-900 p-2 rounded-lg cursor-pointer flex items-center" title="Tomar foto o elegir varias del rollo">
-                            <Icon name="Camera" size={18}/>
-                            <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
-                        </label>
-                        <button onClick={addItem} disabled={!name} className="bg-white text-indigo-600 p-2 rounded-lg disabled:opacity-40"><Icon name="Plus"/></button>
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                        <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg shrink-0"><Icon name="Plus" size={10}/><input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="Etiqueta" className="bg-transparent w-14 text-xs text-white outline-none placeholder-indigo-300"/></div>
-                        {savedTags.map(t=>(<button key={t} onClick={()=>toggleTag(t)} className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition ${selTags.includes(t)?'bg-white text-indigo-700':'bg-indigo-800/50 text-indigo-200 border border-indigo-500/30'}`}>{t} {selTags.includes(t)&&'✓'}</button>))}
-                    </div>
-                </div>
-            </div>
+    // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, items };
 
-            <div className="flex border-b border-gray-100 shrink-0">
-                {[{id:'shop',icon:'ShoppingBag',l:'Lista'},{id:'inv',icon:'Home',l:'Casa'},{id:'hist',icon:'History',l:'Historial'}].map(x=>(<button key={x.id} onClick={()=>setTab(x.id)} className={`flex-1 py-3 flex flex-col items-center gap-1 text-[10px] font-bold ${tab===x.id?'text-indigo-600 bg-indigo-50':'text-gray-400'}`}><Icon name={x.icon} size={20} className={tab===x.id?'stroke-[2.5]':'stroke-2'}/> {x.l}</button>))}
+    const modalFooter = () => {
+        if (modal === 'edit' && editItem) return <button onClick={saveEdit} className="ms-btn ms-btn-primary">Guardar cambios</button>;
+        if (modal === 'view' && viewItem) return <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="ms-btn ms-btn-secondary">Editar</button>;
+        if (modal === 'settings') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-primary">Guardar</button>;
+        if (modal === 'dictate') return (
+            <div className="grid grid-cols-2 gap-2">
+                <button onClick={toggleListening} className={`ms-btn ms-btn-secondary ${isListening ? 'mic-active' : ''}`}>{isListening ? <><Icon name="Stop" size={18}/> Parar</> : <><Icon name="Mic" size={18}/> Hablar</>}</button>
+                <button onClick={handleDictation} disabled={loading || !prompt.trim()} className="ms-btn ms-btn-primary">{loading ? 'Pensando…' : 'Procesar'}</button>
             </div>
+        );
+        return null;
+    };
 
-            <div data-testid="scroll" className={`flex-1 overflow-y-auto overscroll-contain pt-4 px-4 space-y-3 bg-gray-50 ${showCheckout ? 'scroll-pad-bar' : 'scroll-pad'}`}>
+    const tabCounts = {
+        shop: items.filter(i => i.status==='needed'||i.status==='cart').length,
+        inv: items.filter(i => i.status==='stocked').length,
+        hist: items.filter(i => i.lastBought).length,
+    };
+    const cartCount = items.filter(i=>i.status==='cart').length;
+    const expiryLabel = (i) => isCriticalExpired(i) ? 'caducado' : isSoftExpired(i) ? `consumo pref. ${i.expiry}` : `caduca ${i.expiry}`;
+
+    const renderItem = (i) => {
+        const units = formatUnits(i);
+        const flags = (tab==='inv' && invFilter==='MariKondo') ? [isDuplicate(i) && 'duplicado', noPhoto(i) && 'sin foto', isStale(i) && 'sin comprar en 6 meses'].filter(Boolean) : [];
+        const onRowTap = () => {
+            if(tab==='shop') setItems(items.map(x=>x.id===i.id?{...x,status:i.status==='needed'?'cart':'needed'}:x));
+            if(i.status==='inactive') setItems(items.map(x=>x.id===i.id?{...x,status:'stocked'}:x));
+        };
+        return (
+            <div key={i.id} data-item className={`ms-row ${i.status==='cart'?'is-cart':''} ${i.status==='inactive'?'is-inactive':''}`}>
                 {tab==='shop' && (
-                    <React.Fragment>
-                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                            <button onClick={()=>setFilter('Todos')} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${filter==='Todos'?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>Todos</button>
-                            {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap ${filter===t?'bg-gray-800 text-white':'bg-white text-gray-500'}`}>{t}</button>))}
-                        </div>
-                    </React.Fragment>
+                    <button className="ms-check" onClick={onRowTap} aria-label={i.status==='cart' ? `Quitar ${i.name} del carrito` : `Marcar ${i.name} en el carrito`} aria-pressed={i.status==='cart'}>
+                        <span>{i.status==='cart' && <Icon name="Check" size={14}/>}</span>
+                    </button>
                 )}
-                {tab==='inv' && (
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 mb-2">
-                        <button onClick={()=>setInvFilter('Todos')} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${invFilter==='Todos'?'bg-green-600 text-white':'bg-white text-gray-500'}`}>Todos</button>
-                        <button onClick={()=>setInvFilter('MariKondo')} className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap ${invFilter==='MariKondo'?'bg-pink-600 text-white border-pink-600':'bg-pink-50 text-pink-700 border-pink-200'}`}>✨ Mari Kondo</button>
-                        {categories.map(c=>(<button key={c} onClick={()=>setInvFilter(c)} className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap ${invFilter===c?'bg-green-600 text-white':'bg-white text-gray-500'}`}>{c}</button>))}
-                        <button onClick={()=>setInvFilter('Agotados')} className={`px-3 py-1.5 rounded-full text-xs font-bold border bg-gray-200 text-gray-600 whitespace-nowrap ${invFilter==='Agotados'?'border-gray-400 bg-gray-300':''}`}>Agotados</button>
-                    </div>
+                {i.photoUrl && (
+                    <img src={i.photoUrl} alt="" loading="lazy" onClick={()=>openView(i)} className="ms-thumb cursor-pointer active:opacity-70"/>
                 )}
-                {(tab==='inv' || tab==='shop') && (
-                    <div className="flex gap-2 items-center mb-2">
-                        <div className="flex items-center bg-white border rounded-lg px-2 py-1 flex-1 min-w-0">
-                            <Icon name="Search" size={14} className="text-gray-400 shrink-0"/>
-                            <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Buscar…" className="bg-transparent outline-none px-2 py-0.5 text-xs flex-1 min-w-0"/>
-                            {searchQuery && <button onClick={()=>setSearchQuery('')} className="text-gray-400 text-xs">×</button>}
-                        </div>
-                        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="bg-white border rounded-lg text-xs px-2 py-1.5 font-bold text-gray-600">
-                            <option value="name">A-Z</option>
-                            <option value="recent">Recientes</option>
-                            <option value="expiry">Por caducidad</option>
-                            <option value="price">Por precio</option>
-                        </select>
-                        {tab==='inv' && (
-                            <button onClick={()=>setGroupByPlace(!groupByPlace)} title="Agrupar por área" className={`px-2 py-1.5 rounded-lg border text-xs font-bold ${groupByPlace?'bg-indigo-600 text-white border-indigo-600':'bg-white text-gray-600'}`}><Icon name="Layers" size={14}/></button>
-                        )}
-                    </div>
-                )}
-                {(tab==='inv' || tab==='hist') && (
-                    <div className="flex justify-end mb-2 gap-2 flex-wrap">
-                        <button onClick={handleExportCSV} className="bg-white border text-indigo-600 px-3 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"><Icon name="Download" size={12}/> Exportar CSV</button>
-                        {tab==='inv' && <div className="relative overflow-hidden"><button className="bg-white border text-gray-600 px-3 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1"><Icon name="Upload" size={12}/> Importar</button><input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 opacity-0"/></div>}
-                    </div>
-                )}
+                <div className="flex-1 min-w-0 cursor-pointer" onClick={onRowTap}>
+                    <p className="ms-name">
+                        {i.name}
+                        {i.isEssential && <span className="ms-meta" style={{marginLeft:6}} title="Esencial">★</span>}
+                    </p>
+                    <p className="ms-meta">
+                        {[i.category, (i.places||[]).filter(p=>p && p!=='General').join(', ')].filter(Boolean).join(' · ')}
+                        {units && tab!=='inv' && <> · {units}</>}
+                        {i.price && <> · ${i.price}</>}
+                        {i.purchaseAt && <> · {i.purchaseAt}</>}
+                        {i.expiry && <> · <span className={isCriticalExpired(i)?'danger':isSoftExpired(i)?'warn':''}>{expiryLabel(i)}</span></>}
+                        {flags.length > 0 && <> · {flags.join(', ')}</>}
+                    </p>
+                    {tab==='inv' && (
+                        (i.unitCount || i.unitSize) ? (
+                            <p className="ms-meta" onClick={e=>{e.stopPropagation(); openEdit(i);}}>{units}</p>
+                        ) : (
+                            <input
+                                value={i.qty || ''}
+                                placeholder="+ cantidad"
+                                aria-label={`Cantidad de ${i.name}`}
+                                onClick={e=>e.stopPropagation()}
+                                onChange={e=>setItems(items.map(x=>x.id===i.id?{...x,qty:e.target.value}:x))}
+                                className="ms-qty"
+                            />
+                        )
+                    )}
+                    {cloudMode && i.updatedBy && (
+                        <p className="ms-meta">Editado por {nicknameOf(i.updatedBy)} · {relativeTime(i.updatedAt)}</p>
+                    )}
+                </div>
+                <div className="ms-row-actions">
+                    {(tab==='inv' && i.status!=='inactive') && (
+                        <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} aria-label="Pasar a la lista" className="ms-icon-btn" style={{color:'var(--ink)'}}><Icon name="Plus" size={20}/></button>
+                    )}
+                    {tab==='inv' && (
+                        <label className="ms-icon-btn" aria-label={i.photoUrl ? 'Cambiar foto' : 'Tomar foto'} onClick={e=>e.stopPropagation()}>
+                            <Icon name="Camera" size={19}/>
+                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleQuickPhoto(i, f); e.target.value=''; }}/>
+                        </label>
+                    )}
+                    <button onClick={()=>openEdit(i)} aria-label="Editar" className="ms-icon-btn"><Icon name="Edit" size={18}/></button>
+                    <button onClick={()=>handleSmartDelete(i)} aria-label="Borrar" className="ms-icon-btn"><Icon name="Trash" size={18}/></button>
+                </div>
+            </div>
+        );
+    };
 
-                {!list.length && (
-                    <div className="text-center py-10 text-gray-400 text-sm">
-                        {searchQuery.trim() ? <>Nada coincide con “{searchQuery.trim()}”.</>
-                            : tab==='shop' ? <>Tu lista está vacía.<br/><span className="text-xs">Escribe arriba lo que falta o usa el micrófono.</span></>
-                            : tab==='hist' ? <>Aún no hay compras registradas.</>
-                            : <>Nada por aquí 🦗</>}
+    return (
+        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}}>
+            <header className="ms-mast shrink-0 z-10">
+                {updateReady && (
+                    <div className="flex items-center justify-between gap-3 mb-2 text-sm">
+                        <span>Hay una versión nueva.</span>
+                        <button onClick={applyUpdate} className="ms-link-strong" style={{color:'var(--paper)'}}>Recargar</button>
                     </div>
                 )}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                        <h1 className="serif" style={{fontSize:26, lineHeight:1.1, fontWeight:500}}>Mi Súper</h1>
+                        <p className="ms-mast-meta flex items-center gap-1.5 mt-0.5">
+                            {cloudMode && <>
+                                <span aria-hidden="true" style={{width:6,height:6,borderRadius:3,background: syncStatus==='online' ? '#7fb08f' : syncStatus==='connecting' ? '#c9a25b' : '#c7706a'}}></span>
+                                <span className="truncate">{groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}</span>
+                                <span>·</span>
+                            </>}
+                            <button onClick={hardRefresh} title="Limpiar cache y recargar" className="py-1">v{APP_VERSION} · <span className="underline">refrescar</span></button>
+                        </p>
+                    </div>
+                    <nav className="flex items-center -mr-2" aria-label="Herramientas">
+                        <label className="ms-icon-btn" aria-label="Leer ticket"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
+                        <button onClick={()=>{setModal('dictate'); setResult(null)}} aria-label="Dictar" className="ms-icon-btn"><Icon name="Mic"/></button>
+                        <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} aria-label="Chef" className="ms-icon-btn"><Icon name="Chef"/></button>
+                        <button onClick={()=>setModal('suggest')} aria-label="Sugerencias" className="ms-icon-btn"><Icon name="Sparkles"/></button>
+                        <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-icon-btn"><Icon name="Settings"/></button>
+                    </nav>
+                </div>
+                <div className="ms-add">
+                    <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter' && !e.nativeEvent.isComposing) addItem(e); }} enterKeyHint="done" placeholder={tab==='inv'?"Agregar a Casa…":"¿Qué falta?"} aria-label={tab==='inv'?'Agregar a Casa':'Agregar a la lista'}/>
+                    <label className="ms-icon-btn" aria-label="Agregar con foto" title="Tomar foto o elegir varias del rollo">
+                        <Icon name="Camera"/>
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
+                    </label>
+                    <button onClick={addItem} disabled={!name} aria-label="Agregar" className="ms-icon-btn -mr-2"><Icon name="Plus" size={22}/></button>
+                </div>
+                <div className="flex items-center gap-3">
+                <span className="ms-mast-meta shrink-0" style={{fontSize:13}}>Lugar</span>
+                <div className="flex gap-4 overflow-x-auto no-scrollbar items-center flex-1 min-w-0" data-hscroll>
+                    {savedTags.map(t=>(<button key={t} onClick={()=>toggleTag(t)} aria-pressed={selTags.includes(t)} className="ms-toggle">{t}</button>))}
+                    <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="+ lugar" aria-label="Nuevo lugar" className="bg-transparent outline-none shrink-0 py-2" style={{width:72, fontSize:14, color:'var(--paper)'}}/>
+                </div>
+                </div>
+            </header>
+
+            <div className="ms-tabs shrink-0" role="tablist">
+                {[{id:'shop',l:'Lista'},{id:'inv',l:'Casa'},{id:'hist',l:'Historial'}].map(x=>(
+                    <button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)} className="ms-tab">{x.l}<span className="ms-count">{tabCounts[x.id]}</span></button>
+                ))}
+            </div>
+
+            <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                <div className="ms-tools">
+                    {tab==='shop' && (
+                        <div className="flex gap-4 overflow-x-auto no-scrollbar items-center" data-hscroll>
+                            <span className="shrink-0" style={{fontSize:13, color:'var(--ink-3)'}}>Ver</span>
+                            <button onClick={()=>setFilter('Todos')} aria-pressed={filter==='Todos'} className="ms-toggle">Todos</button>
+                            {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} aria-pressed={filter===t} className="ms-toggle">{t}</button>))}
+                        </div>
+                    )}
+                    {tab==='inv' && (
+                        <div className="flex gap-4 overflow-x-auto no-scrollbar" data-hscroll>
+                            <button onClick={()=>setInvFilter('Todos')} aria-pressed={invFilter==='Todos'} className="ms-toggle">Todos</button>
+                            <button onClick={()=>setInvFilter('MariKondo')} aria-pressed={invFilter==='MariKondo'} className="ms-toggle">Mari Kondo</button>
+                            {categories.map(c=>(<button key={c} onClick={()=>setInvFilter(c)} aria-pressed={invFilter===c} className="ms-toggle">{c}</button>))}
+                            <button onClick={()=>setInvFilter('Agotados')} aria-pressed={invFilter==='Agotados'} className="ms-toggle">Agotados</button>
+                        </div>
+                    )}
+                    {(tab==='inv' || tab==='shop') && (
+                        <div className="flex gap-3 items-center mt-1">
+                            <label className="ms-search">
+                                <Icon name="Search" size={16}/>
+                                <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Buscar" aria-label="Buscar"/>
+                                {searchQuery && <button onClick={()=>setSearchQuery('')} aria-label="Borrar búsqueda" className="ms-icon-btn -mr-2" style={{width:32,height:32}}><Icon name="X" size={16}/></button>}
+                            </label>
+                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} aria-label="Ordenar" className="ms-select">
+                                <option value="name">A-Z</option>
+                                <option value="recent">Recientes</option>
+                                <option value="expiry">Caducidad</option>
+                                <option value="price">Precio</option>
+                            </select>
+                            <button onClick={()=>setGroupByPlace(!groupByPlace)} aria-pressed={groupByPlace} aria-label={tab==='shop' ? 'Agrupar por categoría' : 'Agrupar por lugar'} title={tab==='shop' ? 'Agrupar por categoría' : 'Agrupar por lugar'} className="ms-icon-btn -mr-2" style={{color: groupByPlace ? 'var(--ink)' : 'var(--ink-3)', background: groupByPlace ? 'var(--paper-2)' : 'transparent'}}><Icon name="Layers" size={18}/></button>
+                        </div>
+                    )}
+                    {(tab==='inv' || tab==='hist' || tab==='shop') && (
+                        <div className="flex justify-end gap-5 -mb-1">
+                            {tab==='shop' && list.length > 0 && <button onClick={shareList} className="ms-link flex items-center gap-1.5"><Icon name="Share" size={15}/> Compartir lista</button>}
+                            {tab!=='shop' && <button onClick={handleExportCSV} className="ms-link">Exportar CSV</button>}
+                            {tab==='inv' && <label className="ms-link cursor-pointer">Importar CSV<input type="file" accept=".csv" onChange={handleImportCSV} className="hidden"/></label>}
+                        </div>
+                    )}
+                </div>
 
                 {invFilter==='MariKondo' && tab==='inv' && list.length > 0 && (
-                    <div className="bg-pink-50 border border-pink-200 text-pink-800 text-xs rounded-lg px-3 py-2 mb-2">
-                        <span className="font-bold">{list.length}</span> candidatos a mari-kondear: caducados, duplicados, sin foto o no usados en 6+ meses.
-                    </div>
+                    <p className="ms-note"><strong>{list.length}</strong> candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses.</p>
                 )}
 
-                {(() => { const renderItem = (i) => (
-                    <div key={i.id} className={`p-3 rounded-xl border flex flex-col gap-2 shadow-sm transition animate-enter bg-white ${i.status==='cart'?'bg-green-50 border-green-200 opacity-60':''} ${i.status==='inactive'?'opacity-70 bg-gray-50':''} ${isCriticalExpired(i)?'border-red-400':''} ${isSoftExpired(i)?'border-amber-300':''}`}>
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3 overflow-hidden flex-1 cursor-pointer" onClick={()=>{
-                                if(tab==='shop') setItems(items.map(x=>x.id===i.id?{...x,status:i.status==='needed'?'cart':'needed'}:x));
-                                if(i.status==='inactive') setItems(items.map(x=>x.id===i.id?{...x,status:'stocked'}:x)); // Reactivar
-                            }}>
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${i.status==='cart'?'bg-green-500 border-green-500':'border-gray-300'}`}>{i.status==='cart'&&<Icon name="Check" size={12} className="text-white"/>}</div>
-                                {i.photoUrl && (
-                                    <img src={i.photoUrl} alt={i.name} loading="lazy"
-                                        onClick={e=>{e.stopPropagation(); openView(i);}}
-                                        className="w-10 h-10 rounded-lg object-cover border shrink-0 cursor-pointer active:opacity-70"/>
-                                )}
-                                <div className="min-w-0">
-                                    <p className={`font-semibold text-sm ${i.status==='cart'&&'line-through'} flex items-center gap-1`}>
-                                        {i.name}
-                                        {i.isEssential && <Icon name="Star" size={12} className="text-yellow-400 fill-current"/>}
-                                    </p>
-                                    <p className="text-[10px] text-gray-500">{i.category} • {i.places.join(', ')}</p>
-                                    {cloudMode && i.updatedBy && (
-                                        <p className="text-[9px] text-gray-400">Editado por {nicknameOf(i.updatedBy)} · {relativeTime(i.updatedAt)}</p>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex gap-2 items-center">
-                                {/* BOTÓN MÁGICO PARA PASAR A LISTA */}
-                                {(tab==='inv' && i.status!=='inactive') && (
-                                    <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} aria-label="Pasar a la lista" className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Icon name="Plus" size={16}/></button>
-                                )}
-                                {tab==='inv' && (
-                                    <label className={`p-2 rounded-lg cursor-pointer ${i.photoUrl ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`} title={i.photoUrl ? 'Cambiar foto' : 'Tomar foto'} onClick={e=>e.stopPropagation()}>
-                                        <Icon name="Camera" size={16}/>
-                                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleQuickPhoto(i, f); e.target.value=''; }}/>
-                                    </label>
-                                )}
-                                <button onClick={()=>openEdit(i)} aria-label="Editar" className="p-2 -m-1 rounded-lg text-gray-400 hover:text-indigo-500 active:bg-gray-100"><Icon name="Edit" size={16}/></button>
-                                <button onClick={()=>handleSmartDelete(i)} aria-label="Borrar" className="p-2 -m-1 rounded-lg text-gray-400 hover:text-red-500 active:bg-gray-100"><Icon name="Trash" size={16}/></button>
-                            </div>
-                        </div>
-                        {(i.qty || i.price || i.expiry || tab === 'inv' || formatUnits(i)) && (
-                            <div className="flex gap-3 text-[10px] text-gray-500 border-t pt-1 mt-1 items-center flex-wrap">
-                                {tab === 'inv' ? (
-                                    (i.unitCount || i.unitSize) ? (
-                                        <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium" onClick={e=>{e.stopPropagation(); openEdit(i);}}>{formatUnits(i)}</span>
-                                    ) : (
-                                        <label className="flex items-center gap-1 flex-1">
-                                            <span className="text-gray-400 shrink-0">Cantidad:</span>
-                                            <input
-                                                value={i.qty || ''}
-                                                placeholder="ej: 2 kg"
-                                                onClick={e=>e.stopPropagation()}
-                                                onChange={e=>setItems(items.map(x=>x.id===i.id?{...x,qty:e.target.value}:x))}
-                                                className="bg-gray-100 px-1.5 py-0.5 rounded outline-none border border-transparent focus:border-indigo-300 w-28 text-[10px]"
-                                            />
-                                        </label>
-                                    )
-                                ) : (
-                                    formatUnits(i) && <span className="bg-gray-100 px-1 rounded">{formatUnits(i)}</span>
-                                )}
-                                {i.price && <span className="bg-green-50 text-green-700 px-1 rounded">${i.price}</span>}
-                                {i.expiry && <span className={`flex items-center gap-1 px-1 rounded ${isCriticalExpired(i)?'bg-red-100 text-red-700 font-bold':isSoftExpired(i)?'bg-amber-100 text-amber-700':'bg-red-50 text-red-600'}`} title={isCriticalExpired(i)?'Caducado — tirar':isSoftExpired(i)?'Consumo preferente vencido — revisa visualmente, aún puede estar bien':''}><Icon name="Clock" size={10}/> {i.expiry}{isSoftExpired(i)?' (rec.)':''}</span>}
-                                {i.purchaseAt && <span className="bg-blue-50 text-blue-700 px-1 rounded text-[10px]">{i.purchaseAt}</span>}
-                                {tab==='inv' && (isCriticalExpired(i) || isSoftExpired(i) || isDuplicate(i) || noPhoto(i)) && (
-                                    <span className="text-[10px] ml-auto flex items-center gap-0.5" title={`${isCriticalExpired(i)?'Caducado (peligroso) ':''}${isSoftExpired(i)?'Caducado (recomendación) ':''}${isDuplicate(i)?'Duplicado ':''}${noPhoto(i)?'Sin foto':''}`}>
-                                        {isCriticalExpired(i) && <span className="text-red-600">⚠</span>}
-                                        {isSoftExpired(i) && <span className="text-amber-600">⏰</span>}
-                                        {isDuplicate(i) && <span className="text-pink-600">⧉</span>}
-                                        {noPhoto(i) && <span className="text-gray-400">📷</span>}
-                                    </span>
-                                )}
-                            </div>
-                        )}
+                <div style={{borderTop:'1px solid var(--rule)'}}>
+                    {groupedList
+                        ? groupedList.flatMap(([g, gitems]) => [<div key={"_g_"+g} className="ms-group">{g} · {gitems.length}</div>, ...gitems.map(renderItem)])
+                        : list.map(renderItem)}
+                </div>
+
+                {!list.length && (
+                    <div className="ms-empty">
+                        {searchQuery.trim() ? <>Nada coincide con “{searchQuery.trim()}”.</>
+                            : tab==='shop' ? <>Tu lista está vacía.<br/><span style={{fontSize:13}}>Escribe arriba lo que falta o usa el micrófono.</span></>
+                            : tab==='hist' ? <>Aún no hay compras registradas.</>
+                            : invFilter==='MariKondo' ? <>Nada que mari-kondear.</>
+                            : <>No hay nada aquí todavía.</>}
                     </div>
-                ); return groupedList ? groupedList.flatMap(([place, gitems]) => [<div key={"_g_"+place} className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-3 mb-1 px-1">{place} <span className="text-gray-300">· {gitems.length}</span></div>, ...gitems.map(renderItem)]) : list.map(renderItem); })()}
+                )}
+                <div style={{height:24}} aria-hidden="true"></div>
             </div>
 
-            {showCheckout && (
-                <div data-floating className="absolute left-4 right-4 animate-enter float-bottom">
-                    <button onClick={requestCheckout} className="w-full bg-gray-900 text-white p-4 rounded-xl shadow-xl flex justify-between items-center"><span className="font-bold text-sm ml-2">Finalizar Compra ({items.filter(i=>i.status==='cart').length})</span><div className="bg-white/20 p-1 rounded-full mr-2"><Icon name="ArrowRight"/></div></button>
-                </div>
-            )}
-
-            {undoSnapshot && (
-                <div data-floating className="absolute left-4 right-4 toast-enter float-bottom z-30">
-                    <div className="bg-gray-900 text-white p-3 rounded-xl shadow-xl flex justify-between items-center">
-                        <span className="text-sm">✓ {undoSnapshot.label}</span>
-                        <button onClick={() => { setItems(undoSnapshot.items); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold">Deshacer</button>
-                    </div>
+            {(undoSnapshot || notice || showCheckout) && (
+                <div className="ms-dock shrink-0" data-dock>
+                    {undoSnapshot && (
+                        <div className="ms-toast" role="status">
+                            <span>{undoSnapshot.label}</span>
+                            <button onClick={() => { setItems(undoSnapshot.items); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="ms-link-strong">Deshacer</button>
+                        </div>
+                    )}
+                    {notice && !undoSnapshot && <div className="ms-toast" role="status"><span>{notice}</span></div>}
+                    {showCheckout && (
+                        <button onClick={requestCheckout} className="ms-btn ms-btn-accent justify-between">
+                            <span>Finalizar compra</span>
+                            <span className="flex items-center gap-2 font-normal">{cartCount} en el carrito <Icon name="ArrowRight" size={18}/></span>
+                        </button>
+                    )}
                 </div>
             )}
 
             {confirmData.isOpen && (
-                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-enter">
-                    <div className="bg-white w-full max-w-sm rounded-2xl p-6 text-center shadow-2xl">
-                        <h3 className="font-bold text-lg mb-2 text-gray-800">{confirmData.msg}</h3>
-                        <div className="flex flex-col gap-2 mt-4">
-                            <button onClick={confirmData.action} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg">{confirmData.actionText}</button>
-                            {confirmData.altAction && <button onClick={confirmData.altAction} className="w-full py-3 bg-red-100 text-red-600 rounded-xl font-bold">{confirmData.altText}</button>}
-                            <button onClick={()=>setConfirmData({isOpen:false})} className="w-full py-2 text-gray-400 text-sm font-bold">Cancelar</button>
-                        </div>
-                    </div>
-                </div>
+                <Sheet z={70} testid="confirm" onClose={()=>setConfirmData({isOpen:false})} title={confirmData.msg}
+                    footer={<>
+                        <button onClick={confirmData.action} className="ms-btn ms-btn-primary">{confirmData.actionText}</button>
+                        {confirmData.altAction && <button onClick={confirmData.altAction} className="ms-btn ms-btn-danger">{confirmData.altText}</button>}
+                        <button onClick={()=>setConfirmData({isOpen:false})} className="ms-btn ms-btn-secondary">Cancelar</button>
+                    </>}>
+                    {confirmData.detail ? <p className="ms-prose" style={{color:'var(--ink-2)'}}>{confirmData.detail}</p> : null}
+                </Sheet>
             )}
 
             {modal && !confirmData.isOpen && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4 sheet-safe">
-                    <div data-testid="sheet" className="bg-white w-full rounded-2xl p-5 shadow-2xl animate-enter max-h-full overflow-auto overscroll-contain">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-lg flex gap-2 items-center">
-                                {modal==='settings' && <><Icon name="Settings"/> Ajustes</>}
-                                {modal==='edit' && <><Icon name="Edit"/> Editar</>}
-                                {modal==='dictate' && <><Icon name="Mic"/> Dictado AI</>}
-                                {modal==='chef' && <><Icon name="Chef"/> Chef AI</>}
-                                {modal==='ticket' && <><Icon name="Camera"/> Ticket AI</>}
-                                {modal==='suggest' && <><Icon name="Sparkles"/> Sugerencias</>}
-                            </h3>
-                            <button onClick={()=>{setModal(null); setEditItem(null); setResult(null)}} className="bg-gray-100 p-1 rounded-full"><Icon name="X"/></button>
-                        </div>
+                <Sheet testid="sheet" onClose={()=>{setModal(null); setEditItem(null); setResult(null)}}
+                    title={{settings:'Ajustes', edit:'Editar', dictate:'Dictado', chef:'Chef', ticket:'Ticket', suggest:'Sugerencias', view: viewItem ? viewItem.name : ''}[modal]}
+                    footer={modalFooter()}>
 
-                        {modal === 'edit' && editItem && (
-                            <div className="space-y-3">
-                                {(() => {
-                                    const allPhotos = Array.from(new Set([
-                                        ...(editItem.photoUrl ? [editItem.photoUrl] : []),
-                                        ...(editItem.extraPhotoUrls || [])
-                                    ]));
-                                    return (
-                                        <div className="bg-gray-50 rounded-xl p-3">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase">Fotos · {allPhotos.length}</span>
-                                                <label className="bg-emerald-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer flex items-center gap-1 active:scale-95">
-                                                    <Icon name="Camera" size={12}/> + foto
-                                                    <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) editAddPhotos(fs); e.target.value=''; }}/>
-                                                </label>
-                                            </div>
-                                            {allPhotos.length > 0 ? (
-                                                <div className="grid grid-cols-3 gap-1.5">
-                                                    {allPhotos.map((url) => (
-                                                        <div key={url} className="relative aspect-square rounded-lg overflow-hidden border group">
-                                                            <img src={url} className="w-full h-full object-cover"/>
-                                                            {url === editItem.photoUrl && (
-                                                                <span className="absolute top-0.5 left-0.5 bg-indigo-600 text-white text-[8px] font-bold px-1 py-0.5 rounded">PRINCIPAL</span>
-                                                            )}
-                                                            <button type="button" onClick={() => editRemovePhoto(url)} className="absolute top-0.5 right-0.5 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shadow-md active:scale-90" title="Quitar">×</button>
-                                                            {url !== editItem.photoUrl && (
-                                                                <button type="button" onClick={() => editSetMainPhoto(url)} className="absolute bottom-0.5 left-0.5 bg-white/90 text-indigo-600 text-[8px] font-bold px-1 py-0.5 rounded active:scale-95" title="Hacer principal">★ principal</button>
-                                                            )}
-                                                        </div>
-                                                    ))}
+                        {modal === 'edit' && editItem && (() => {
+                            const allPhotos = Array.from(new Set([
+                                ...(editItem.photoUrl ? [editItem.photoUrl] : []),
+                                ...(editItem.extraPhotoUrls || [])
+                            ]));
+                            const structured = editItem._structured || editItem.unitCount || editItem.unitSize;
+                            return (
+                                <div className="space-y-4">
+                                    <label className="ms-field">
+                                        <span className="ms-label">Nombre</span>
+                                        <input value={editItem.name} onChange={e=>setEditItem({...editItem, name:e.target.value})} className="ms-input" style={{fontWeight:600}} placeholder="Nombre"/>
+                                    </label>
+                                    <div>
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="ms-label">Cantidad</span>
+                                            <button type="button" onClick={() => setEditItem({...editItem, _structured: !editItem._structured && !(editItem.unitCount || editItem.unitSize)})} className="ms-link" style={{fontSize:13, padding:'4px 0'}}>
+                                                {structured ? 'Texto libre' : 'Piezas × tamaño'}
+                                            </button>
+                                        </div>
+                                        {structured ? (
+                                            <>
+                                                <div className="flex items-center gap-2">
+                                                    <input type="number" inputMode="numeric" min="0" placeholder="3" aria-label="Piezas" value={editItem.unitCount ?? ''} onChange={e=>setEditItem({...editItem, unitCount: e.target.value === '' ? null : Number(e.target.value)})} className="ms-input text-center" style={{width:72}}/>
+                                                    <span style={{color:'var(--ink-3)'}}>×</span>
+                                                    <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="250" aria-label="Tamaño" value={editItem.unitSize ?? ''} onChange={e=>setEditItem({...editItem, unitSize: e.target.value === '' ? null : Number(e.target.value)})} className="ms-input text-center flex-1 min-w-0"/>
+                                                    <select value={editItem.unitType || ''} aria-label="Unidad" onChange={e=>setEditItem({...editItem, unitType: e.target.value})} className="ms-input" style={{width:92}}>
+                                                        <option value="">—</option>
+                                                        <optgroup label="Peso">
+                                                            <option value="g">g</option><option value="kg">kg</option><option value="mg">mg</option><option value="oz">oz</option><option value="lb">lb</option>
+                                                        </optgroup>
+                                                        <optgroup label="Volumen">
+                                                            <option value="ml">ml</option><option value="l">l</option><option value="oz_fl">oz fl</option>
+                                                        </optgroup>
+                                                        <optgroup label="Conteo">
+                                                            <option value="pz">pz</option><option value="pkg">pkg</option><option value="bolsa">bolsa</option><option value="lata">lata</option><option value="caja">caja</option><option value="botella">botella</option>
+                                                        </optgroup>
+                                                    </select>
                                                 </div>
-                                            ) : (
-                                                <p className="text-[11px] text-gray-400 text-center py-3">Sin fotos · agrega frente, ingredientes, caducidad, etc.</p>
-                                            )}
-                                        </div>
-                                    );
-                                })()}
-                                <input value={editItem.name} onChange={e=>setEditItem({...editItem, name:e.target.value})} className="w-full border p-2 rounded-lg font-bold" placeholder="Nombre"/>
-                                <div className="border rounded-lg p-2 bg-gray-50">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <label className="text-[10px] font-bold text-gray-500">Cantidad</label>
-                                        <button type="button" onClick={() => setEditItem({...editItem, _structured: !editItem._structured && !(editItem.unitCount || editItem.unitSize)})} className="text-[10px] text-indigo-500 underline">
-                                            {(editItem._structured || editItem.unitCount || editItem.unitSize) ? 'Modo simple' : 'Modo estructurado'}
-                                        </button>
+                                                <p className="ms-hint">{formatUnits(editItem) || 'Número de piezas × tamaño y unidad'}</p>
+                                            </>
+                                        ) : (
+                                            <input value={editItem.qty} placeholder="ej. 2 kg" aria-label="Cantidad" onChange={e=>setEditItem({...editItem, qty:e.target.value})} className="ms-input"/>
+                                        )}
                                     </div>
-                                    {(editItem._structured || editItem.unitCount || editItem.unitSize) ? (
-                                        <div>
-                                            <div className="flex items-center gap-1">
-                                                <input type="number" inputMode="numeric" min="0" placeholder="3" value={editItem.unitCount ?? ''} onChange={e=>setEditItem({...editItem, unitCount: e.target.value === '' ? null : Number(e.target.value)})} className="border p-2 rounded-lg w-16 text-center"/>
-                                                <span className="text-gray-400">×</span>
-                                                <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="250" value={editItem.unitSize ?? ''} onChange={e=>setEditItem({...editItem, unitSize: e.target.value === '' ? null : Number(e.target.value)})} className="border p-2 rounded-lg flex-1 text-center"/>
-                                                <select value={editItem.unitType || ''} onChange={e=>setEditItem({...editItem, unitType: e.target.value})} className="border p-2 rounded-lg bg-white">
-                                                    <option value="">—</option>
-                                                    <optgroup label="Peso">
-                                                        <option value="g">g</option>
-                                                        <option value="kg">kg</option>
-                                                        <option value="mg">mg</option>
-                                                        <option value="oz">oz</option>
-                                                        <option value="lb">lb</option>
-                                                    </optgroup>
-                                                    <optgroup label="Volumen">
-                                                        <option value="ml">ml</option>
-                                                        <option value="l">l</option>
-                                                        <option value="oz_fl">oz fl</option>
-                                                    </optgroup>
-                                                    <optgroup label="Conteo">
-                                                        <option value="pz">pz</option>
-                                                        <option value="pkg">pkg</option>
-                                                        <option value="bolsa">bolsa</option>
-                                                        <option value="lata">lata</option>
-                                                        <option value="caja">caja</option>
-                                                        <option value="botella">botella</option>
-                                                    </optgroup>
-                                                </select>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="ms-field">
+                                            <span className="ms-label">Precio</span>
+                                            <input type="number" inputMode="decimal" value={editItem.price} onChange={e=>setEditItem({...editItem, price:e.target.value})} className="ms-input" placeholder="$"/>
+                                        </label>
+                                        <label className="ms-field">
+                                            <span className="ms-label">Categoría</span>
+                                            <select value={editItem.category} onChange={e=>setEditItem({...editItem, category:e.target.value})} className="ms-input">{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                                        </label>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="ms-field">
+                                            <span className="ms-label">Caducidad</span>
+                                            <input type="date" value={editItem.expiry} onChange={e=>setEditItem({...editItem, expiry:e.target.value})} className="ms-input"/>
+                                        </label>
+                                        <label className="ms-field">
+                                            <span className="ms-label">Tipo de fecha</span>
+                                            <select value={editItem.expiryType || ''} onChange={e=>setEditItem({...editItem, expiryType: e.target.value})} className="ms-input">
+                                                <option value="">Automático</option>
+                                                <option value="strict">Caducidad (tirar)</option>
+                                                <option value="best_before">Consumo preferente</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <label className="ms-field">
+                                        <span className="ms-label">Lugares, separados por coma</span>
+                                        <input value={editItem.places.join(', ')} onChange={e=>setEditItem({...editItem, places:e.target.value.split(',').map(s=>s.trim())})} className="ms-input"/>
+                                    </label>
+                                    <label className="ms-field">
+                                        <span className="ms-label">Dónde comprar</span>
+                                        <input list="purchase-stores" value={editItem.purchaseAt || ''} onChange={e=>setEditItem({...editItem, purchaseAt: e.target.value})} placeholder="Costco, Sumesa, City Market…" className="ms-input"/>
+                                        <datalist id="purchase-stores">
+                                            {Array.from(new Set(items.map(it => it.purchaseAt).filter(Boolean))).map(s => <option key={s} value={s}/>)}
+                                            {['Costco','Sumesa','Walmart','City Market','La Comer','Soriana','Mercado Roma','Tianguis','Online'].map(s => <option key={'d'+s} value={s}/>)}
+                                        </datalist>
+                                    </label>
+                                    <label className="flex items-center gap-3 cursor-pointer" style={{minHeight:44}}>
+                                        <input type="checkbox" checked={!!editItem.isEssential} onChange={()=>setEditItem({...editItem, isEssential: !editItem.isEssential})} style={{width:22,height:22,accentColor:'var(--ink)'}}/>
+                                        <span>
+                                            <span style={{fontSize:16}}>Esencial</span>
+                                            <span className="ms-hint" style={{display:'block', marginTop:0}}>Cuando se acaba, regresa sola a la lista.</span>
+                                        </span>
+                                    </label>
+                                    <div className="ms-section">
+                                        <div className="flex items-baseline justify-between">
+                                            <p className="ms-h">Fotos · {allPhotos.length}</p>
+                                            <label className="ms-link cursor-pointer flex items-center gap-1.5">
+                                                <Icon name="Camera" size={15}/> Agregar
+                                                <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) editAddPhotos(fs); e.target.value=''; }}/>
+                                            </label>
+                                        </div>
+                                        {allPhotos.length > 0 ? (
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {allPhotos.map((url) => (
+                                                    <figure key={url} className="relative">
+                                                        <img src={url} alt="" className="w-full aspect-square object-cover" style={{borderRadius:6, background:'var(--paper-2)'}}/>
+                                                        <button type="button" onClick={() => editRemovePhoto(url)} aria-label="Quitar foto" className="absolute top-0 right-0 ms-icon-btn" style={{width:36,height:36,color:'#fff',filter:'drop-shadow(0 0 2px rgba(0,0,0,.7))'}}><Icon name="X" size={18}/></button>
+                                                        <figcaption className="ms-meta" style={{marginTop:2}}>
+                                                            {url === editItem.photoUrl ? 'Principal' : <button type="button" onClick={() => editSetMainPhoto(url)} className="underline" style={{padding:'4px 0'}}>Hacer principal</button>}
+                                                        </figcaption>
+                                                    </figure>
+                                                ))}
                                             </div>
-                                            <p className="text-[10px] text-gray-500 mt-1 text-center">{formatUnits(editItem) || 'Captura número × tamaño + unidad'}</p>
-                                        </div>
-                                    ) : (
-                                        <input value={editItem.qty} placeholder="ej: 2 kg" onChange={e=>setEditItem({...editItem, qty:e.target.value})} className="w-full border p-2 rounded-lg"/>
-                                    )}
-                                </div>
-                                <div><label className="text-[10px] font-bold text-gray-500">Precio</label><input type="number" inputMode="decimal" value={editItem.price} onChange={e=>setEditItem({...editItem, price:e.target.value})} className="w-full border p-2 rounded-lg"/></div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-gray-500">Categoría</label>
-                                        <select value={editItem.category} onChange={e=>setEditItem({...editItem, category:e.target.value})} className="w-full border p-2 rounded-lg bg-white">{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-gray-500">Caducidad</label>
-                                        <input type="date" value={editItem.expiry} onChange={e=>setEditItem({...editItem, expiry:e.target.value})} className="w-full border p-2 rounded-lg"/>
-                                        <select value={editItem.expiryType || ''} onChange={e=>setEditItem({...editItem, expiryType: e.target.value})} className="w-full border p-1 rounded mt-1 text-[10px] bg-white">
-                                            <option value="">— tipo (auto: {inferExpiryType(editItem) || 'best_before'}) —</option>
-                                            <option value="strict">Importante (tirar al caducar)</option>
-                                            <option value="best_before">Recomendación (consumo preferente)</option>
-                                        </select>
+                                        ) : (
+                                            <p className="ms-hint">Sin fotos. Agrega frente, ingredientes o caducidad.</p>
+                                        )}
                                     </div>
                                 </div>
-                                <div><label className="text-[10px] font-bold text-gray-500">Lugares (separados por coma)</label><input value={editItem.places.join(', ')} onChange={e=>setEditItem({...editItem, places:e.target.value.split(',').map(s=>s.trim())})} className="w-full border p-2 rounded-lg"/></div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-gray-500">Dónde comprar</label>
-                                    <input list="purchase-stores" value={editItem.purchaseAt || ''} onChange={e=>setEditItem({...editItem, purchaseAt: e.target.value})} placeholder="Costco, Sumesa, City Market…" className="w-full border p-2 rounded-lg"/>
-                                    <datalist id="purchase-stores">
-                                        {Array.from(new Set(items.map(it => it.purchaseAt).filter(Boolean))).map(s => <option key={s} value={s}/>)}
-                                        <option value="Costco"/>
-                                        <option value="Sumesa"/>
-                                        <option value="Walmart"/>
-                                        <option value="City Market"/>
-                                        <option value="La Comer"/>
-                                        <option value="Soriana"/>
-                                        <option value="Mercado Roma"/>
-                                        <option value="Tianguis"/>
-                                        <option value="Online"/>
-                                    </datalist>
-                                </div>
-                                <div className="flex items-center gap-2 border p-3 rounded-lg bg-yellow-50 border-yellow-100" onClick={()=>setEditItem({...editItem, isEssential: !editItem.isEssential})}>
-                                    <div className={`w-5 h-5 rounded border flex items-center justify-center ${editItem.isEssential?'bg-yellow-400 border-yellow-400':'bg-white border-gray-300'}`}>{editItem.isEssential && <Icon name="Check" size={12} className="text-white"/>}</div>
-                                    <span className="text-sm font-bold text-yellow-800 flex items-center gap-1">Marcar Esencial <Icon name="Star" size={14}/></span>
-                                </div>
-                                <button onClick={saveEdit} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mt-2">Guardar Cambios</button>
-                            </div>
-                        )}
+                            );
+                        })()}
 
                         {modal === 'view' && viewItem && (
-                            <div className="space-y-3 -m-2">
+                            <div className="space-y-4">
                                 {viewItem.photoUrl ? (
                                     <a href={viewItem.photoUrl} target="_blank" rel="noopener" className="block">
-                                        <img src={viewItem.photoUrl} alt={viewItem.name} className="w-full max-h-[45vh] object-contain rounded-xl bg-gray-100"/>
+                                        <img src={viewItem.photoUrl} alt={viewItem.name} className="w-full max-h-[45vh] object-contain" style={{background:'var(--paper-2)', borderRadius:6}}/>
                                     </a>
                                 ) : (
-                                    <div className="w-full h-40 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-sm">Sin foto principal</div>
+                                    <p className="ms-hint">Sin foto principal.</p>
                                 )}
-                                <div className="px-1">
-                                    <h2 className="text-xl font-bold flex items-center gap-2">
-                                        {viewItem.name}
-                                        {viewItem.isEssential && <Icon name="Star" size={16} className="text-yellow-400 fill-current"/>}
-                                    </h2>
-                                    <p className="text-xs text-gray-500 mt-0.5">{viewItem.category} · {viewItem.places.join(', ') || 'General'}</p>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5 px-1">
-                                    {formatUnits(viewItem) && <span className="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg text-xs font-medium">📦 {formatUnits(viewItem)}</span>}
-                                    {viewItem.qty && !formatUnits(viewItem) && <span className="bg-gray-100 px-2.5 py-1 rounded-lg text-xs">{viewItem.qty}</span>}
-                                    {viewItem.price && <span className="bg-green-50 text-green-700 px-2.5 py-1 rounded-lg text-xs">${viewItem.price}</span>}
-                                    {viewItem.expiry && <span className={`px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 ${isCriticalExpired(viewItem)?'bg-red-100 text-red-700 font-bold':isSoftExpired(viewItem)?'bg-amber-100 text-amber-700':'bg-red-50 text-red-600'}`}><Icon name="Clock" size={11}/> {viewItem.expiry}{isSoftExpired(viewItem)?' (rec.)':''}</span>}
-                                    {viewItem.purchaseAt && <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg text-xs">{viewItem.purchaseAt}</span>}
-                                </div>
-                                <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm">Editar item</button>
-
-                                <div className="border-t pt-3 px-1">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h3 className="font-bold text-xs text-gray-600 uppercase tracking-wider">Fotos · {viewItemPhotos.length}</h3>
-                                        <label className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1 active:scale-95 transition">
-                                            <Icon name="Camera" size={13}/> + foto
+                                <dl className="grid gap-x-4 gap-y-2" style={{gridTemplateColumns:'auto 1fr', fontSize:15}}>
+                                    <dt style={{color:'var(--ink-3)'}}>Categoría</dt><dd>{viewItem.category}{viewItem.isEssential ? ' · esencial' : ''}</dd>
+                                    <dt style={{color:'var(--ink-3)'}}>Lugar</dt><dd>{viewItem.places.join(', ') || 'General'}</dd>
+                                    {(formatUnits(viewItem) || viewItem.qty) && <><dt style={{color:'var(--ink-3)'}}>Cantidad</dt><dd>{formatUnits(viewItem) || viewItem.qty}</dd></>}
+                                    {viewItem.price && <><dt style={{color:'var(--ink-3)'}}>Precio</dt><dd>${viewItem.price}</dd></>}
+                                    {viewItem.expiry && <><dt style={{color:'var(--ink-3)'}}>Fecha</dt><dd style={{color: isCriticalExpired(viewItem) ? 'var(--danger)' : isSoftExpired(viewItem) ? 'var(--warn)' : undefined}}>{expiryLabel(viewItem)}</dd></>}
+                                    {viewItem.purchaseAt && <><dt style={{color:'var(--ink-3)'}}>Dónde</dt><dd>{viewItem.purchaseAt}</dd></>}
+                                </dl>
+                                <div className="ms-section">
+                                    <div className="flex items-baseline justify-between">
+                                        <p className="ms-h">Fotos · {viewItemPhotos.length}</p>
+                                        <label className="ms-link cursor-pointer flex items-center gap-1.5">
+                                            <Icon name="Camera" size={15}/> Agregar
                                             <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleAddItemPhotos(fs); e.target.value=''; }}/>
                                         </label>
                                     </div>
                                     {viewItemPhotos.length > 0 ? (
-                                        <div className="grid grid-cols-3 gap-1.5">
+                                        <div className="grid grid-cols-3 gap-2">
                                             {viewItemPhotos.map((url, idx) => (
-                                                <a key={url+idx} href={url} target="_blank" rel="noopener" className="aspect-square rounded-lg overflow-hidden border block">
-                                                    <img src={url} className="w-full h-full object-cover" loading="lazy"/>
+                                                <a key={url+idx} href={url} target="_blank" rel="noopener" className="block">
+                                                    <img src={url} alt="" className="w-full aspect-square object-cover" style={{borderRadius:6, background:'var(--paper-2)'}} loading="lazy"/>
                                                 </a>
                                             ))}
                                         </div>
                                     ) : (
-                                        <p className="text-[11px] text-gray-400 text-center py-3">+ foto para agregar ingredientes, caducidad, marca, vista trasera...</p>
+                                        <p className="ms-hint">Agrega ingredientes, caducidad, marca o la parte de atrás.</p>
                                     )}
                                 </div>
                             </div>
@@ -1634,96 +1666,80 @@ Reglas:
                         {modal === 'settings' && (
                             <div className="space-y-4">
                                 {cloudConfigured && cloudMode && (
-                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <p className="text-xs font-bold text-green-900">Grupo: {groupName}</p>
-                                            <span className="text-[10px] text-green-700">{members.length || 1} miembros</span>
-                                        </div>
-                                        <p className="text-[10px] text-green-700 mb-2">Código: <span className="font-mono font-bold tracking-wider">{groupCode}</span></p>
-                                        <div className="flex gap-2">
+                                    <section>
+                                        <p className="ms-h">Grupo</p>
+                                        <p style={{fontSize:16}}>{groupName} · <span style={{color:'var(--ink-3)'}}>{members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}</span></p>
+                                        <p className="ms-hint">Código <strong style={{color:'var(--ink)', letterSpacing:'.08em'}}>{groupCode}</strong></p>
+                                        <div className="grid grid-cols-2 gap-2 mt-3">
                                             <button onClick={async ()=>{
                                                 const text = `Únete a "${groupName}" en Mi Súper con el código ${groupCode}\n${location.origin}${location.pathname}`;
                                                 try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); alert('Copiado'); } } catch {}
-                                            }} className="flex-1 bg-white border border-green-300 text-green-700 py-1.5 rounded text-xs font-bold">Compartir código</button>
+                                            }} className="ms-btn ms-btn-secondary">Compartir código</button>
                                             <button onClick={()=>{
                                                 setConfirmData({
-                                                    isOpen: true, msg: `¿Salir de "${groupName}"? Tus listas locales no se borran.`, actionText: "Salir",
+                                                    isOpen: true, msg: `¿Salir de "${groupName}"?`, detail: 'Tus listas locales no se borran.', actionText: "Salir",
                                                     action: () => { cloudLeaveGroup(); setConfirmData({isOpen:false}); setModal(null); },
-                                                    altAction: () => setConfirmData({isOpen:false}), altText: "Cancelar"
                                                 });
-                                            }} className="flex-1 bg-white border border-red-300 text-red-700 py-1.5 rounded text-xs font-bold">Salir</button>
+                                            }} className="ms-btn ms-btn-danger">Salir</button>
                                         </div>
                                         {items.length > 0 && (
                                             <button onClick={async ()=>{
                                                 const r = await cloudUploadLocal();
                                                 alert(r?.error ? `Error: ${r.error}` : 'Inventario subido al grupo');
-                                            }} className="w-full mt-2 bg-indigo-600 text-white py-1.5 rounded text-xs font-bold">Subir mi inventario actual al grupo</button>
+                                            }} className="ms-link mt-1">Subir mi inventario actual al grupo</button>
                                         )}
-                                    </div>
+                                    </section>
                                 )}
                                 {cloudConfigured && !cloudMode && (
-                                    <div className="bg-gray-50 border rounded-lg p-3">
-                                        <p className="text-xs font-bold text-gray-700 mb-2">Modo: solo este dispositivo</p>
-                                        <div className="flex gap-2">
-                                            <button onClick={()=>{ setObStep('create'); setObError(null); setObName(''); setObNick(''); setOnboarded(false); setModal(null); }} className="flex-1 bg-indigo-600 text-white py-1.5 rounded text-xs font-bold">Crear grupo</button>
-                                            <button onClick={()=>{ setObStep('join'); setObError(null); setObCode(''); setObNick(''); setOnboarded(false); setModal(null); }} className="flex-1 bg-white border-2 border-indigo-600 text-indigo-600 py-1.5 rounded text-xs font-bold">Unirme</button>
+                                    <section>
+                                        <p className="ms-h">Modo</p>
+                                        <p style={{fontSize:16}}>Solo este dispositivo</p>
+                                        <div className="grid grid-cols-2 gap-2 mt-3">
+                                            <button onClick={()=>{ setObStep('create'); setObError(null); setObName(''); setObNick(''); setOnboarded(false); setModal(null); }} className="ms-btn ms-btn-secondary">Crear grupo</button>
+                                            <button onClick={()=>{ setObStep('join'); setObError(null); setObCode(''); setObNick(''); setOnboarded(false); setModal(null); }} className="ms-btn ms-btn-secondary">Unirme</button>
                                         </div>
-                                    </div>
+                                    </section>
                                 )}
-                                <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-xs text-indigo-900">
-                                    <p className="font-bold mb-1">Tus datos viven en tu navegador.</p>
-                                    <p>Las API keys se guardan localmente y solo se envían a Google/DeepSeek cuando usas voz, tickets o chef.</p>
-                                </div>
-                                <div className="text-[10px] text-gray-500 -mb-2">Configura uno o varios. La app usa el mejor disponible para cada tarea (visión: Gemini → Claude → OpenAI; texto: DeepSeek → Gemini → OpenAI → Claude).</div>
-                                <div>
-                                    <p className="text-xs font-bold text-gray-700 mb-1">Google Gemini</p>
-                                    <p className="text-[10px] text-gray-500 mb-1">Gratis. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" className="text-indigo-600 underline">aistudio.google.com</a></p>
-                                    <input value={key} onChange={e=>setKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="AIza..."/>
-                                </div>
-                                <div>
-                                    <p className="text-xs font-bold text-gray-700 mb-1">Anthropic Claude</p>
-                                    <p className="text-[10px] text-gray-500 mb-1">Pago, modelo Haiku. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" className="text-indigo-600 underline">console.anthropic.com</a></p>
-                                    <input value={claudeKey} onChange={e=>setClaudeKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-ant-..."/>
-                                </div>
-                                <div>
-                                    <p className="text-xs font-bold text-gray-700 mb-1">OpenAI</p>
-                                    <p className="text-[10px] text-gray-500 mb-1">Pago, modelo gpt-4o-mini. <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" className="text-indigo-600 underline">platform.openai.com</a></p>
-                                    <input value={openaiKey} onChange={e=>setOpenaiKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-..."/>
-                                </div>
-                                <div>
-                                    <p className="text-xs font-bold text-gray-700 mb-1">DeepSeek</p>
-                                    <p className="text-[10px] text-gray-500 mb-1">Más barato para texto, sin visión. <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" className="text-indigo-600 underline">platform.deepseek.com</a></p>
-                                    <input value={dsKey} onChange={e=>setDsKey(e.target.value)} className="w-full border p-2 rounded font-mono text-xs" placeholder="sk-..."/>
-                                </div>
-                                <button onClick={()=>setModal(null)} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold">Guardar</button>
+                                <section className={cloudConfigured ? 'ms-section' : ''}>
+                                    <p className="ms-h">Inteligencia artificial</p>
+                                    <p className="ms-hint" style={{marginTop:0}}>Las llaves se guardan en este teléfono y solo se mandan al proveedor cuando usas voz, tickets o chef. La app usa la mejor disponible para cada tarea.</p>
+                                </section>
+                                {[
+                                    ['Google Gemini', 'Gratis.', 'https://aistudio.google.com/apikey', 'aistudio.google.com', key, setKey, 'AIza…'],
+                                    ['Anthropic Claude', 'De pago, modelo Haiku.', 'https://console.anthropic.com/settings/keys', 'console.anthropic.com', claudeKey, setClaudeKey, 'sk-ant-…'],
+                                    ['OpenAI', 'De pago, gpt-4o-mini.', 'https://platform.openai.com/api-keys', 'platform.openai.com', openaiKey, setOpenaiKey, 'sk-…'],
+                                    ['DeepSeek', 'El más barato para texto, sin visión.', 'https://platform.deepseek.com/api_keys', 'platform.deepseek.com', dsKey, setDsKey, 'sk-…'],
+                                ].map(([label, note, href, host, val, set, ph]) => (
+                                    <label key={label} className="ms-field">
+                                        <span className="ms-label" style={{color:'var(--ink)', fontSize:15}}>{label}</span>
+                                        <input value={val} onChange={e=>set(e.target.value)} className="ms-input" style={{fontSize:14}} placeholder={ph} autoCapitalize="off" autoCorrect="off" spellCheck="false"/>
+                                        <span className="ms-hint" style={{display:'block'}}>{note} <a href={href} target="_blank" rel="noopener" className="underline">{host}</a></span>
+                                    </label>
+                                ))}
                             </div>
                         )}
 
                         {(modal === 'dictate' || modal === 'chef' || modal === 'ticket') && (
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                 {modal === 'dictate' && (
-                                    <>
-                                        <p className="text-xs text-gray-500">Dicta: "Compré leche, falta huevo..."</p>
-                                        <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} className="w-full border p-2 rounded-lg text-sm" rows="3"/>
-                                        <div className="flex gap-2">
-                                            <button onClick={toggleListening} className={`flex-1 py-3 rounded-lg font-bold text-white flex justify-center items-center gap-2 ${isListening ? 'mic-active' : 'bg-red-500'}`}>{isListening ? <><Icon name="Stop"/> Parar</> : <><Icon name="Mic"/> Hablar</>}</button>
-                                            <button onClick={handleDictation} disabled={loading} className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold flex justify-center items-center gap-2">{loading ? 'Pensando...' : 'Procesar'}</button>
-                                        </div>
-                                    </>
+                                    <label className="ms-field">
+                                        <span className="ms-label">Dicta o escribe, por ejemplo: “compré leche, falta huevo”.</span>
+                                        <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} className="ms-input" rows="3"/>
+                                    </label>
                                 )}
-                                {(loading || result) && (
-                                    <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 text-sm mt-2 text-center">
-                                        {loading ? <p className="text-indigo-600 animate-pulse">Pensando...</p> : (
-                                            <>
-                                                <div className="prose prose-sm text-left whitespace-pre-wrap">{result}</div>
-                                                {modal === 'chef' && window.__lastChefRecipe && (
-                                                    <button onClick={()=>{ openRecipeWizard(window.__lastChefRecipe.title, window.__lastChefRecipe.steps); setModal(null); }} className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold">Ver paso a paso</button>
-                                                )}
-                                                <button onClick={()=>{setResult(null); setPrompt(''); window.__lastChefRecipe = null;}} className="mt-2 w-full bg-white py-1 rounded text-xs font-bold border">Limpiar</button>
-                                            </>
-                                        )}
+                                {loading && <p style={{color:'var(--ink-2)'}} className="animate-pulse">Pensando…</p>}
+                                {!loading && result && (
+                                    <div>
+                                        <div className="ms-prose">{result}</div>
+                                        <div className="flex gap-5 mt-3">
+                                            {modal === 'chef' && window.__lastChefRecipe && (
+                                                <button onClick={()=>{ openRecipeWizard(window.__lastChefRecipe.title, window.__lastChefRecipe.steps); setModal(null); }} className="ms-link-strong" style={{paddingLeft:0}}>Ver paso a paso</button>
+                                            )}
+                                            <button onClick={()=>{setResult(null); setPrompt(''); window.__lastChefRecipe = null;}} className="ms-link">Limpiar</button>
+                                        </div>
                                     </div>
                                 )}
+                                {!loading && !result && modal !== 'dictate' && <p className="ms-hint">Sin resultado todavía.</p>}
                             </div>
                         )}
 
@@ -1737,167 +1753,134 @@ Reglas:
                                 return days > 7;
                             });
                             if (suggested.length === 0) {
-                                return <p className="text-sm text-gray-500 text-center py-4">Tu alacena se ve bien, nada por sugerir.</p>;
+                                return <p className="ms-hint" style={{fontSize:15}}>Tu alacena se ve bien, nada por sugerir.</p>;
                             }
                             return (
-                                <div className="space-y-2">
-                                    <p className="text-xs text-gray-500 mb-2">Estos esenciales llevan más de 7 días sin volver a comprarse:</p>
-                                    {suggested.map(s => (
-                                        <div key={s.id} className="flex items-center justify-between bg-gray-50 border rounded-lg p-2">
-                                            <div>
-                                                <p className="text-sm font-semibold">{s.name}</p>
-                                                <p className="text-[10px] text-gray-500">Última compra: {s.lastBought}</p>
+                                <div>
+                                    <p className="ms-hint" style={{marginTop:0, marginBottom:8}}>Esenciales que llevan más de 7 días sin volver a comprarse.</p>
+                                    <div style={{borderTop:'1px solid var(--rule)', margin:'0 calc(-1 * var(--gutter))'}}>
+                                        {suggested.map(s => (
+                                            <div key={s.id} className="ms-row">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="ms-name">{s.name}</p>
+                                                    <p className="ms-meta">Última compra {s.lastBought}</p>
+                                                </div>
+                                                <button onClick={()=>{ setItems(prev => prev.map(i => i.id === s.id ? {...i, status: 'needed'} : i)); }} className="ms-link-strong">A la lista</button>
                                             </div>
-                                            <button onClick={()=>{ setItems(prev => prev.map(i => i.id === s.id ? {...i, status: 'needed'} : i)); }} className="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">A la lista</button>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
                             );
                         })()}
-                    </div>
-                </div>
+                </Sheet>
             )}
 
-            {!onboarded && (
-                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
-                    <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-enter">
-                        {obStep === 'welcome' && (<>
-                            <div className="text-center mb-4">
-                                <div className="inline-flex p-3 bg-indigo-100 rounded-2xl mb-3"><Icon name="ShoppingBag" size={32} className="text-indigo-600"/></div>
-                                <h2 className="text-xl font-bold">Bienvenido a Mi Súper</h2>
-                                <p className="text-sm text-gray-500 mt-1">Tu lista inteligente del super.</p>
-                            </div>
-                            <ul className="space-y-2 text-sm text-gray-600 mb-4">
-                                <li className="flex gap-2"><span className="text-indigo-600">✓</span> Lista, casa e historial en un tap</li>
-                                <li className="flex gap-2"><span className="text-indigo-600">✓</span> Voz, tickets y chef con AI (opcional)</li>
-                                <li className="flex gap-2"><span className="text-indigo-600">✓</span> Funciona offline en el super</li>
-                                {cloudConfigured && <li className="flex gap-2"><span className="text-indigo-600">✓</span> Compartir lista con amigos en tiempo real</li>}
-                            </ul>
-                            {cloudConfigured ? (<>
-                                <button onClick={signInWithGoogle} className="w-full flex items-center justify-center gap-2 bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-bold mb-3 hover:bg-gray-50">
-                                    <svg width="18" height="18" viewBox="0 0 18 18"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/><path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
-                                    Continuar con Google
-                                </button>
-                                <div className="flex items-center gap-2 mb-3"><div className="flex-1 h-px bg-gray-200"/><span className="text-xs text-gray-400">o</span><div className="flex-1 h-px bg-gray-200"/></div>
-                                <button onClick={()=>{ setObStep('create'); setObError(null); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Crear grupo nuevo</button>
-                                <button onClick={()=>{ setObStep('join'); setObError(null); }} className="w-full bg-white border-2 border-indigo-600 text-indigo-600 py-3 rounded-xl font-bold mb-2">Unirme con código</button>
-                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Solo este dispositivo</button>
-                            </>) : (<>
-                                <p className="text-[11px] text-gray-500 bg-gray-50 border rounded-lg p-3 mb-4">
-                                    Tus datos viven en tu navegador. Para voz/tickets/chef necesitas una API key (Gemini gratis, o Claude/OpenAI/DeepSeek de pago). Configurable desde Ajustes.
-                                </p>
-                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); setModal('settings'); }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Configurar API Key</button>
-                                <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-bold">Empezar sin AI</button>
-                            </>)}
-                        </>)}
-
-                        {obStep === 'create' && (<>
-                            <h2 className="text-xl font-bold mb-1">Crear grupo</h2>
-                            <p className="text-sm text-gray-500 mb-4">Tú serás el primer miembro. Comparte el código con tus amigos para que se unan.</p>
-                            <label className="text-xs font-bold text-gray-700 block mb-1">Nombre del grupo</label>
-                            <input value={obName} onChange={e=>setObName(e.target.value)} placeholder="Familia, Roomies, etc." className="w-full border p-2 rounded-lg mb-3"/>
-                            <label className="text-xs font-bold text-gray-700 block mb-1">Tu nombre en el grupo</label>
-                            <input value={obNick} onChange={e=>setObNick(e.target.value)} placeholder="Pedro" className="w-full border p-2 rounded-lg mb-3"/>
-                            {obError && <p className="text-xs text-red-600 mb-2">{obError}</p>}
+            {!onboarded && (() => {
+                const done = () => { localStorage.setItem('onboarded_v1','1'); setOnboarded(true); };
+                if (obStep === 'create') return (
+                    <Sheet z={60} testid="onboarding" title="Crear grupo"
+                        footer={<>
                             <button disabled={!obName.trim() || !obNick.trim() || obLoading} onClick={async ()=>{
                                 setObLoading(true); setObError(null);
                                 const r = await cloudCreateGroup(obName.trim(), obNick.trim());
                                 setObLoading(false);
                                 if (r.error) { setObError(r.error); return; }
                                 setObShareCode(r.code); setObShareName(obName.trim()); setObStep('success');
-                            }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2 disabled:opacity-50">{obLoading ? 'Creando...' : 'Crear grupo'}</button>
-                            <button onClick={()=>setObStep('welcome')} className="w-full text-gray-500 text-sm py-2">Volver</button>
-                        </>)}
-
-                        {obStep === 'join' && (<>
-                            <h2 className="text-xl font-bold mb-1">Unirme con código</h2>
-                            <p className="text-sm text-gray-500 mb-4">Pega el código de 8 letras que te compartieron.</p>
-                            <label className="text-xs font-bold text-gray-700 block mb-1">Código del grupo</label>
-                            <input value={obCode} onChange={e=>setObCode(e.target.value.toUpperCase())} placeholder="AB23PQ12" maxLength={8} className="w-full border p-2 rounded-lg mb-3 font-mono uppercase tracking-widest"/>
-                            <label className="text-xs font-bold text-gray-700 block mb-1">Tu nombre en el grupo</label>
-                            <input value={obNick} onChange={e=>setObNick(e.target.value)} placeholder="Steph" className="w-full border p-2 rounded-lg mb-3"/>
-                            {obError && <p className="text-xs text-red-600 mb-2">{obError}</p>}
+                            }} className="ms-btn ms-btn-primary">{obLoading ? 'Creando…' : 'Crear grupo'}</button>
+                            <button onClick={()=>setObStep('welcome')} className="ms-btn ms-btn-secondary">Volver</button>
+                        </>}>
+                        <div className="space-y-4">
+                            <p className="ms-hint" style={{marginTop:0, fontSize:15}}>Tú serás el primer miembro. Comparte el código para que otros se unan.</p>
+                            <label className="ms-field"><span className="ms-label">Nombre del grupo</span><input value={obName} onChange={e=>setObName(e.target.value)} placeholder="Familia, roomies…" className="ms-input"/></label>
+                            <label className="ms-field"><span className="ms-label">Tu nombre en el grupo</span><input value={obNick} onChange={e=>setObNick(e.target.value)} placeholder="Pedro" className="ms-input"/></label>
+                            {obError && <p style={{color:'var(--danger)', fontSize:14}}>{obError}</p>}
+                        </div>
+                    </Sheet>
+                );
+                if (obStep === 'join') return (
+                    <Sheet z={60} testid="onboarding" title="Unirme con código"
+                        footer={<>
                             <button disabled={obCode.trim().length < 4 || !obNick.trim() || obLoading} onClick={async ()=>{
                                 setObLoading(true); setObError(null);
                                 const r = await cloudJoinGroup(obCode, obNick.trim());
                                 setObLoading(false);
                                 if (r.error) { setObError(r.error === 'group not found' ? 'No encontré ese grupo. Revisa el código.' : r.error); return; }
-                                localStorage.setItem('onboarded_v1','1'); setOnboarded(true);
-                            }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2 disabled:opacity-50">{obLoading ? 'Uniéndome...' : 'Unirme'}</button>
-                            <button onClick={()=>setObStep('welcome')} className="w-full text-gray-500 text-sm py-2">Volver</button>
-                        </>)}
-
-                        {obStep === 'success' && (<>
-                            <div className="text-center mb-4">
-                                <div className="inline-flex p-3 bg-green-100 rounded-2xl mb-3"><Icon name="Check" size={32} className="text-green-600"/></div>
-                                <h2 className="text-xl font-bold">{obShareName} listo</h2>
-                                <p className="text-sm text-gray-500 mt-1">Comparte este código con tus amigos:</p>
-                            </div>
-                            <div className="bg-indigo-50 border-2 border-dashed border-indigo-300 rounded-xl p-4 mb-4 text-center">
-                                <p className="font-mono text-2xl font-bold tracking-widest text-indigo-700">{obShareCode}</p>
-                            </div>
+                                done();
+                            }} className="ms-btn ms-btn-primary">{obLoading ? 'Uniéndome…' : 'Unirme'}</button>
+                            <button onClick={()=>setObStep('welcome')} className="ms-btn ms-btn-secondary">Volver</button>
+                        </>}>
+                        <div className="space-y-4">
+                            <p className="ms-hint" style={{marginTop:0, fontSize:15}}>Pega el código de 8 letras que te compartieron.</p>
+                            <label className="ms-field"><span className="ms-label">Código del grupo</span><input value={obCode} onChange={e=>setObCode(e.target.value.toUpperCase())} placeholder="AB23PQ12" maxLength={8} autoCapitalize="characters" autoCorrect="off" className="ms-input uppercase" style={{letterSpacing:'.15em'}}/></label>
+                            <label className="ms-field"><span className="ms-label">Tu nombre en el grupo</span><input value={obNick} onChange={e=>setObNick(e.target.value)} placeholder="Steph" className="ms-input"/></label>
+                            {obError && <p style={{color:'var(--danger)', fontSize:14}}>{obError}</p>}
+                        </div>
+                    </Sheet>
+                );
+                if (obStep === 'success') return (
+                    <Sheet z={60} testid="onboarding" title={`${obShareName} listo`}
+                        footer={<>
                             <button onClick={async ()=>{
                                 const text = `Únete a "${obShareName}" en Mi Súper con el código ${obShareCode}\n${location.origin}${location.pathname}`;
                                 try {
                                     if (navigator.share) await navigator.share({ text });
                                     else { await navigator.clipboard.writeText(text); alert('Copiado al portapapeles'); }
                                 } catch {}
-                            }} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mb-2">Compartir código</button>
-                            <button onClick={()=>{ localStorage.setItem('onboarded_v1','1'); setOnboarded(true); }} className="w-full bg-gray-100 text-gray-700 py-2 rounded-xl text-sm font-bold">Empezar</button>
-                        </>)}
-                    </div>
-                </div>
-            )}
+                            }} className="ms-btn ms-btn-primary">Compartir código</button>
+                            <button onClick={done} className="ms-btn ms-btn-secondary">Empezar</button>
+                        </>}>
+                        <p className="ms-hint" style={{marginTop:0, fontSize:15}}>Comparte este código con quien quieras en el grupo:</p>
+                        <p className="serif text-center" style={{fontSize:34, letterSpacing:'.12em', padding:'18px 0', borderTop:'1px solid var(--rule)', borderBottom:'1px solid var(--rule)', marginTop:12}}>{obShareCode}</p>
+                    </Sheet>
+                );
+                return (
+                    <Sheet z={60} testid="onboarding" title="Mi Súper"
+                        footer={cloudConfigured ? <>
+                            <button onClick={()=>{ setObStep('create'); setObError(null); }} className="ms-btn ms-btn-primary">Crear grupo nuevo</button>
+                            <button onClick={()=>{ setObStep('join'); setObError(null); }} className="ms-btn ms-btn-secondary">Unirme con código</button>
+                            <button onClick={done} className="ms-btn ms-btn-secondary">Solo este dispositivo</button>
+                        </> : <>
+                            <button onClick={()=>{ done(); setModal('settings'); }} className="ms-btn ms-btn-primary">Configurar llave de IA</button>
+                            <button onClick={done} className="ms-btn ms-btn-secondary">Empezar sin IA</button>
+                        </>}>
+                        <p style={{fontSize:17, lineHeight:1.5}}>Tu lista del súper, lo que tienes en casa y lo que ya compraste, en un solo lugar.</p>
+                        <ul className="mt-3 space-y-1" style={{fontSize:15, color:'var(--ink-2)', listStyle:'disc', paddingLeft:20}}>
+                            <li>Voz, tickets y chef con IA, opcional.</li>
+                            <li>Funciona sin conexión dentro del súper.</li>
+                            {cloudConfigured && <li>Lista compartida en tiempo real con tu grupo.</li>}
+                        </ul>
+                        {cloudConfigured ? (
+                            <button onClick={signInWithGoogle} className="ms-btn ms-btn-secondary mt-5">
+                                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/><path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
+                                Continuar con Google
+                            </button>
+                        ) : (
+                            <p className="ms-hint mt-4">Tus datos viven en este teléfono. Para voz, tickets y chef necesitas una llave de IA (Gemini es gratis); se configura en Ajustes.</p>
+                        )}
+                    </Sheet>
+                );
+            })()}
 
-            {recipeWizard && (
-                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-[80] flex items-center justify-center p-5 animate-enter">
-                    <div className="bg-white w-full rounded-2xl shadow-2xl flex flex-col overflow-hidden" style={{maxHeight:'90%'}}>
-                        <div className="bg-indigo-600 px-5 py-4 flex justify-between items-start">
-                            <div>
-                                <p className="text-indigo-200 text-xs font-medium mb-1">{recipeWizard.title}</p>
-                                <p className="text-white text-[11px]">Paso {recipeWizard.step + 1} de {recipeWizard.steps.length}</p>
+            {recipeWizard && (() => {
+                const { title, steps, step } = recipeWizard;
+                const finished = step >= steps.length;
+                return (
+                    <Sheet z={80} testid="recipe" onClose={()=>setRecipeWizard(null)}
+                        title={<><span style={{display:'block', fontSize:13, color:'var(--ink-3)', fontFamily:'-apple-system, system-ui, sans-serif'}}>{finished ? 'Receta terminada' : `Paso ${step + 1} de ${steps.length}`}</span>{title}</>}
+                        footer={
+                            <div className="grid grid-cols-2 gap-2">
+                                <button disabled={step === 0} onClick={()=>setRecipeWizard(w=>({...w, step: w.step - 1}))} className="ms-btn ms-btn-secondary">Anterior</button>
+                                {!finished
+                                    ? <button onClick={()=>setRecipeWizard(w=>({...w, step: w.step + 1}))} className="ms-btn ms-btn-primary">Siguiente</button>
+                                    : <button onClick={()=>setRecipeWizard(null)} className="ms-btn ms-btn-primary">Cerrar</button>}
                             </div>
-                            <button onClick={()=>setRecipeWizard(null)} className="bg-white/20 p-1.5 rounded-full"><Icon name="X" size={16} className="text-white"/></button>
-                        </div>
-                        <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
-                            {recipeWizard.step < recipeWizard.steps.length ? (
-                                <>
-                                    <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center mb-5 shrink-0">
-                                        <span className="text-indigo-700 font-bold text-lg">{recipeWizard.step + 1}</span>
-                                    </div>
-                                    <p className="text-xl text-gray-800 font-medium text-center leading-relaxed">{recipeWizard.steps[recipeWizard.step]}</p>
-                                </>
-                            ) : (
-                                <div className="text-center">
-                                    <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-                                        <Icon name="Check" size={32} className="text-green-600"/>
-                                    </div>
-                                    <p className="text-2xl font-bold text-gray-800">Listo!</p>
-                                    <p className="text-gray-500 text-sm mt-1">Que te aproveche.</p>
-                                </div>
-                            )}
-                        </div>
-                        <div className="px-5 pb-6 flex gap-3">
-                            <button
-                                disabled={recipeWizard.step === 0}
-                                onClick={()=>setRecipeWizard(w=>({...w, step: w.step - 1}))}
-                                className="flex-1 py-4 rounded-xl font-bold text-base border-2 border-gray-200 text-gray-600 disabled:opacity-30"
-                            >Anterior</button>
-                            {recipeWizard.step < recipeWizard.steps.length ? (
-                                <button
-                                    onClick={()=>setRecipeWizard(w=>({...w, step: w.step + 1}))}
-                                    className="flex-1 py-4 rounded-xl font-bold text-base bg-indigo-600 text-white"
-                                >Siguiente</button>
-                            ) : (
-                                <button
-                                    onClick={()=>setRecipeWizard(null)}
-                                    className="flex-1 py-4 rounded-xl font-bold text-base bg-green-600 text-white"
-                                >Cerrar</button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+                        }>
+                        {!finished
+                            ? <p className="serif" style={{fontSize:24, lineHeight:1.4}}>{steps[step]}</p>
+                            : <p className="serif" style={{fontSize:24}}>Listo. Que te aproveche.</p>}
+                    </Sheet>
+                );
+            })()}
         </div>
     );
 };

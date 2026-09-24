@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Mi Súper">
-    <meta name="theme-color" content="#4f46e5">
+    <meta name="theme-color" content="#161615">
 
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -20,26 +20,113 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
-        .ios-header { padding-top: max(20px, env(safe-area-inset-top)); }
+        /* Sistema visual v24: papel + tinta, un acento semántico (verde = en el carrito / comprado),
+           fuente del sistema para la interfaz y serif solo para títulos. Reglas finas en vez de cards. */
+        :root {
+            --paper: #fbfbfa; --paper-2: #f3f2ef; --ink: #161615; --ink-2: #57544f; --ink-3: #8c8881;
+            --rule: #e3e0da; --accent: #2f6b45; --accent-soft: #e7efe9; --danger: #a3261f; --warn: #8a5a14;
+            --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom);
+            --gutter: 16px;
+        }
         html, body { height: 100%; margin: 0; overflow: hidden; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", sans-serif; background: #e9e7e2; color: var(--ink); -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; -webkit-font-smoothing: antialiased; }
         #root { position: fixed; left: 0; right: 0; top: var(--vv-top, 0px); height: 100vh; height: var(--vv-h, 100dvh); }
-        .scroll-pad { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
-        .scroll-pad-bar { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
-        .float-bottom { bottom: calc(1rem + env(safe-area-inset-bottom)); }
-        .sheet-safe { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+        input, textarea, select { font-size: 16px; font-family: inherit; color: inherit; }
+        button { font-family: inherit; }
+        .serif { font-family: "Newsreader", "Iowan Old Style", Georgia, serif; font-optical-sizing: auto; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-enter { animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .mic-active { animation: pulse 1.5s infinite; background-color: #ef4444 !important; border-color: #ef4444 !important; }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
-        input, textarea, select { font-size: 16px; }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .toast-enter { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        /* Cabecera */
+        .ms-mast { background: var(--ink); color: var(--paper); padding: calc(max(12px, var(--sat)) + 4px) var(--gutter) 10px; }
+        .ms-mast-meta { color: #a9a59d; font-size: 12px; }
+        .ms-icon-btn { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; color: inherit; cursor: pointer; flex-shrink: 0; }
+        .ms-icon-btn:active { background: rgba(127,127,127,.18); }
+        .ms-icon-btn:disabled { opacity: .35; }
+        .ms-add { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #4a4843; margin-top: 10px; }
+        .ms-add input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; padding: 10px 0; font-size: 17px; color: var(--paper); }
+        .ms-add input::placeholder { color: #8f8b83; }
+        .ms-toggle { font-size: 14px; padding: 8px 2px; white-space: nowrap; color: var(--ink-3); border-bottom: 2px solid transparent; flex-shrink: 0; }
+        .ms-toggle[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+        .ms-mast .ms-toggle { color: #8f8b83; }
+        .ms-mast .ms-toggle[aria-pressed="true"] { color: var(--paper); border-bottom-color: var(--paper); }
+
+        /* Pestañas */
+        .ms-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--paper); border-bottom: 1px solid var(--rule); }
+        .ms-tab { padding: 12px 0 10px; font-size: 15px; color: var(--ink-3); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .ms-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+        .ms-count { font-size: 12px; color: var(--ink-3); font-weight: 400; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+        /* Lista */
+        .ms-scroll { background: var(--paper); }
+        .ms-tools { padding: 4px var(--gutter) 8px; }
+        .ms-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; border-bottom: 1px solid var(--rule); color: var(--ink-3); }
+        .ms-search input { flex: 1; min-width: 0; background: transparent; outline: 0; border: 0; padding: 9px 0; font-size: 16px; color: var(--ink); }
+        .ms-select { background: transparent; border: 0; font-size: 14px; color: var(--ink-2); padding: 9px 2px; }
+        .ms-row { display: flex; align-items: center; gap: 10px; padding: 10px var(--gutter); border-bottom: 1px solid var(--rule); min-height: 60px; }
+        .ms-row.is-cart .ms-name { text-decoration: line-through; color: var(--ink-3); }
+        .ms-row.is-inactive { opacity: .6; }
+        .ms-name { font-size: 16px; font-weight: 500; line-height: 1.3; }
+        .ms-meta { font-size: 13px; color: var(--ink-3); line-height: 1.35; margin-top: 2px; }
+        .ms-meta .danger { color: var(--danger); font-weight: 600; }
+        .ms-meta .warn { color: var(--warn); }
+        .ms-check { width: 44px; height: 44px; margin: -8px -6px -8px -10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .ms-check span { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #b9b5ad; display: flex; align-items: center; justify-content: center; color: #fff; }
+        .ms-row.is-cart .ms-check span { background: var(--accent); border-color: var(--accent); }
+        .ms-thumb { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: var(--paper-2); }
+        .ms-row-actions { display: flex; align-items: center; margin-right: -8px; color: var(--ink-3); }
+        .ms-row-actions .ms-icon-btn { width: 36px; height: 40px; }
+        .ms-group { padding: 18px var(--gutter) 6px; font-size: 13px; color: var(--ink-2); font-variant: small-caps; letter-spacing: .02em; border-bottom: 1px solid var(--rule); text-transform: lowercase; }
+        .ms-note { margin: 8px var(--gutter); font-size: 13px; color: var(--ink-2); }
+        .ms-empty { padding: 48px var(--gutter); text-align: center; color: var(--ink-3); font-size: 15px; line-height: 1.5; }
+        .ms-qty { background: transparent; border: 0; border-bottom: 1px solid transparent; font-size: 13px; width: 110px; padding: 2px 0; outline: 0; color: var(--ink-2); }
+        .ms-qty::placeholder { color: #b3afa8; }
+        .ms-qty:focus { border-bottom-color: var(--ink-3); }
+
+        /* Dock inferior: vive en el flujo (no flota), así nunca tapa la lista */
+        .ms-dock { background: var(--paper); border-top: 1px solid var(--rule); padding: 10px var(--gutter) calc(10px + var(--sab)); display: flex; flex-direction: column; gap: 8px; }
+        .ms-toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--ink-2); min-height: 40px; }
+
+        /* Botones */
+        .ms-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 10px; font-size: 16px; font-weight: 600; width: 100%; }
+        .ms-btn-primary { background: var(--ink); color: var(--paper); }
+        .ms-btn-accent { background: var(--accent); color: #fff; }
+        .ms-btn-secondary { background: transparent; color: var(--ink); border: 1px solid var(--rule); }
+        .ms-btn-danger { background: transparent; color: var(--danger); border: 1px solid #e7c9c6; }
+        .ms-btn:disabled { opacity: .4; }
+        .ms-btn:active:not(:disabled) { transform: scale(.99); opacity: .9; }
+        .ms-link { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule); font-size: 14px; padding: 8px 0; }
+        .ms-link-strong { color: var(--ink); font-weight: 600; font-size: 15px; padding: 8px 4px; }
+
+        /* Hojas (modales) */
+        .ms-overlay { position: absolute; inset: 0; background: rgba(22,22,21,.45); display: flex; align-items: flex-end; justify-content: center; }
+        .ms-sheet { background: var(--paper); width: 100%; max-height: calc(100% - max(12px, var(--sat))); display: flex; flex-direction: column; border-radius: 14px 14px 0 0; animation: sheetIn .28s cubic-bezier(.16,1,.3,1); }
+        .ms-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 8px 8px var(--gutter); border-bottom: 1px solid var(--rule); flex-shrink: 0; }
+        .ms-sheet-title { font-size: 22px; line-height: 1.2; }
+        .ms-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px var(--gutter) 20px; }
+        .ms-sheet-foot { flex-shrink: 0; padding: 10px var(--gutter) calc(12px + var(--sab)); border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 8px; }
+        .ms-sheet-head + .ms-sheet-foot { border-top: 0; }
+        .ms-sheet-body.no-foot { padding-bottom: calc(20px + var(--sab)); }
+        @keyframes sheetIn { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+        @media (min-width: 640px) { .ms-overlay { align-items: center; padding: 24px; } .ms-sheet { border-radius: 14px; max-width: 420px; } }
+
+        /* Formularios */
+        .ms-field { display: block; }
+        .ms-label { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 4px; }
+        .ms-hint { font-size: 13px; color: var(--ink-3); margin-top: 4px; line-height: 1.4; }
+        .ms-input { width: 100%; background: #fff; border: 1px solid var(--rule); border-radius: 8px; padding: 11px 12px; outline: 0; min-height: 46px; }
+        .ms-input:focus { border-color: var(--ink-3); }
+        .ms-section { border-top: 1px solid var(--rule); padding-top: 16px; margin-top: 16px; }
+        .ms-h { font-size: 13px; color: var(--ink-2); font-variant: small-caps; text-transform: lowercase; letter-spacing: .02em; margin-bottom: 8px; }
+        .ms-prose { font-size: 16px; line-height: 1.55; white-space: pre-wrap; }
+
+        .mic-active { animation: pulse 1.5s infinite; background: var(--danger) !important; color: #fff !important; border-color: var(--danger) !important; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(163,38,31,.5); } 70% { box-shadow: 0 0 0 10px rgba(163,38,31,0); } 100% { box-shadow: 0 0 0 0 rgba(163,38,31,0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-enter { animation: fadeIn .2s ease-out; }
     </style>
 </head>
 <body>
