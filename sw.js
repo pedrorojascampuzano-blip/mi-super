@@ -5,9 +5,9 @@ const PRECACHE = [
   './manifest.json',
   './config.js',
   './app.js',
-  './icon-192.png',
-  './icon-512.png',
-  './apple-touch-icon.png'
+  './icon-192.png?v=27',
+  './icon-512.png?v=27',
+  './apple-touch-icon.png?v=27'
 ];
 
 // Install: precache and skipWaiting immediately.
