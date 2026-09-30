@@ -130,13 +130,16 @@
         .ms-stitle { font-size: 32px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
         .ms-ssub { font-size: 14px; color: var(--ink-3); margin-top: 3px; display: flex; align-items: center; gap: 6px; }
         .ms-dot { width: 7px; height: 7px; border-radius: 4px; flex-shrink: 0; }
-        .ms-stools { padding: 2px var(--gutter) 10px; }
+        .ms-stools { background: #f9f9fb; border-top: 1px solid var(--rule); padding: 8px var(--gutter) 2px; }
+        .ms-stools.kb { padding-bottom: 8px; }
+        .ms-stools + .ms-bottomnav { border-top: 0; }
+        .ms-shead + .ms-scroll .ms-slist { margin-top: 4px; }
         .ms-ssearch { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 10px; background: #e4e4e9; color: var(--ink-3); }
         .ms-ssearch input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 16px; color: var(--ink); }
         .ms-ssearch input::placeholder { color: var(--ink-3); }
         .ms-sfilter { color: var(--ink-2); }
         .ms-sfilter[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
-        .ms-sactive { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+        .ms-sactive { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); margin: -2px 0 4px; }
         .ms-sactive .ms-link-strong { color: var(--accent); font-size: 14px; }
         .ms-slist { border-top: 0; margin: 0 var(--gutter); border-radius: 12px; overflow: hidden; }
         .ms-slist .ms-srow:last-child { border-bottom: 0; }
@@ -163,6 +166,10 @@
         .ms-menu { margin: -8px calc(-1 * var(--gutter)) 0; }
         .ms-menu-item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 var(--gutter); font-size: 17px; color: var(--ink); border-bottom: 1px solid var(--rule); cursor: pointer; text-align: left; }
         .ms-menu-item svg { color: var(--accent); }
+        .ms-menu-split { gap: 0; padding: 0; }
+        .ms-menu-split > * { flex: 1; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 var(--gutter); }
+        .ms-menu-split > * + * { border-left: 1px solid var(--rule); }
+        .ms-menu-split svg { color: var(--accent); }
         .ms-menu-foot { display: block; width: 100%; padding: 16px var(--gutter) 4px; font-size: 13px; color: var(--ink-3); text-align: left; }
         .ms-sh { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 8px; }
         .ms-opts { display: flex; flex-wrap: wrap; gap: 8px; }

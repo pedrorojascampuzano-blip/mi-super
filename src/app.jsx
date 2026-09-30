@@ -43,17 +43,17 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '27';
+const APP_VERSION = '28';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
-const Sheet = ({ title, onClose, footer, children, z = 50, testid }) => (
+const Sheet = ({ title, onClose, footer, children, z = 50, testid, noX = false }) => (
     <div className="ms-overlay" style={{ zIndex: z }} onClick={(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}>
         <div className="ms-sheet" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} data-testid={testid}>
             {(title || onClose) && (
                 <div className="ms-sheet-head">
                     <h2 className="serif ms-sheet-title min-w-0">{title}</h2>
-                    {onClose && <button onClick={onClose} aria-label="Cerrar" className="ms-icon-btn" style={{ color: 'var(--ink-2)' }}><Icon name="X" size={22}/></button>}
+                    {onClose && !noX && <button onClick={onClose} aria-label="Cerrar" className="ms-icon-btn" style={{ color: 'var(--ink-2)' }}><Icon name="X" size={22}/></button>}
                 </div>
             )}
             {children ? <div className={`ms-sheet-body ${footer ? '' : 'no-foot'}`} data-testid="sheet-body">{children}</div> : null}
@@ -1309,6 +1309,7 @@ Reglas:
                 <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="ms-btn ms-btn-primary">Editar</button>
             </div>
         );
+        if (modal === 'more' || modal === 'filters') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-secondary">Listo</button>;
         if (modal === 'settings') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-primary">Guardar</button>;
         if (modal === 'dictate') return (
             <div className="grid grid-cols-2 gap-2">
@@ -1508,13 +1509,7 @@ Reglas:
     const filtersActive = (tab==='shop' && filter!=='Todos') || (tab==='inv' && invFilter!=='Todos') || groupByPlace || sortBy!=='name';
     const header = (
         <header className="ms-shead shrink-0">
-            {updateReady && (
-                <div className="flex items-center justify-between gap-3 mb-2 text-sm">
-                    <span>Hay una versión nueva.</span>
-                    <button onClick={applyUpdate} className="ms-link-strong">Recargar</button>
-                </div>
-            )}
-            <div className="flex items-end justify-between gap-2">
+            <div>
                 <div className="min-w-0">
                     <h1 className="ms-stitle">{{shop:'Lista',inv:'Casa',hist:'Historial'}[tab]}</h1>
                     <p className="ms-ssub truncate">
@@ -1522,33 +1517,35 @@ Reglas:
                         {subtitle}
                     </p>
                 </div>
-                <button onClick={()=>setModal('more')} aria-label="Más" className="ms-icon-btn -mr-2"><Icon name="More" size={24}/></button>
             </div>
         </header>
     );
+    // v28: todo lo que se toca vive abajo. Esta barra va justo encima de la navegación y se queda
+    // visible con el teclado abierto para que la búsqueda no quede tapada.
     const tools = (
-        <div className="ms-stools">
+        <div className={`ms-stools shrink-0 ${hasBottomNav ? '' : 'kb'}`} data-tools>
+            {tab!=='hist' && filtersActive && (
+                <p className="ms-sactive">
+                    <span className="truncate">{[tab==='shop' && filter!=='Todos' && filter, tab==='inv' && invFilter!=='Todos' && (invFilter==='MariKondo' ? 'Mari Kondo' : invFilter), sortBy!=='name' && {recent:'recientes',expiry:'por caducidad',price:'por precio'}[sortBy], groupByPlace && 'agrupado'].filter(Boolean).join(' · ')}</span>
+                    <button onClick={()=>{ setFilter('Todos'); setInvFilter('Todos'); setSortBy('name'); setGroupByPlace(false); }} className="ms-link-strong">Quitar</button>
+                </p>
+            )}
+            <div className="flex items-center gap-2">
             {tab==='hist' ? (
                 <div className="ms-seg" role="tablist">
                     <button onClick={()=>setHistView('compras')} aria-selected={histView==='compras'} role="tab">Compras</button>
                     <button onClick={()=>setHistView('rend')} aria-selected={histView==='rend'} role="tab">Rendimientos</button>
                 </div>
-            ) : (
-                <div className="flex items-center gap-2">
+            ) : (<>
                     <label className="ms-ssearch">
                         <Icon name="Search" size={17}/>
                         <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Buscar" aria-label="Buscar"/>
                         {searchQuery && <button onClick={()=>setSearchQuery('')} aria-label="Borrar búsqueda" className="ms-icon-btn -mr-2" style={{width:32,height:32}}><Icon name="X" size={16}/></button>}
                     </label>
                     <button onClick={()=>setModal('filters')} aria-label="Ver y ordenar" aria-pressed={filtersActive} className="ms-icon-btn ms-sfilter"><Icon name="Sliders" size={20}/></button>
-                </div>
-            )}
-            {tab!=='hist' && filtersActive && (
-                <p className="ms-sactive">
-                    {[tab==='shop' && filter!=='Todos' && filter, tab==='inv' && invFilter!=='Todos' && (invFilter==='MariKondo' ? 'Mari Kondo' : invFilter), sortBy!=='name' && {recent:'recientes',expiry:'por caducidad',price:'por precio'}[sortBy], groupByPlace && 'agrupado'].filter(Boolean).join(' · ')}
-                    <button onClick={()=>{ setFilter('Todos'); setInvFilter('Todos'); setSortBy('name'); setGroupByPlace(false); }} className="ms-link-strong">Quitar</button>
-                </p>
-            )}
+            </>)}
+                <button onClick={()=>setModal('more')} aria-label="Más" className="ms-icon-btn ms-sfilter"><Icon name="More" size={22}/></button>
+            </div>
         </div>
     );
     const opt = (on, onClick, label) => <button key={label} onClick={onClick} aria-pressed={on} className="ms-opt">{label}</button>;
@@ -1558,7 +1555,6 @@ Reglas:
             {header}
 
             <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {tools}
 
                 {tab==='hist' && histView==='rend' ? renderRendimientos() : (<>
                 {invFilter==='MariKondo' && tab==='inv' && list.length > 0 && (
@@ -1584,8 +1580,14 @@ Reglas:
                 <div style={{height:24}} aria-hidden="true"></div>
             </div>
 
-            {(undoSnapshot || notice || showCheckout) && (
-                <div className={`ms-dock shrink-0 ${hasBottomNav ? 'over-nav' : ''}`} data-dock>
+            {(undoSnapshot || notice || showCheckout || updateReady) && (
+                <div className="ms-dock over-nav shrink-0" data-dock>
+                    {updateReady && (
+                        <div className="ms-toast" role="status">
+                            <span>Hay una versión nueva.</span>
+                            <button onClick={applyUpdate} className="ms-link-strong">Recargar</button>
+                        </div>
+                    )}
                     {undoSnapshot && (
                         <div className="ms-toast" role="status">
                             <span>{undoSnapshot.label}</span>
@@ -1601,6 +1603,8 @@ Reglas:
                     )}
                 </div>
             )}
+
+            {tools}
 
             {hasBottomNav && (
                 <nav className="ms-bottomnav shrink-0 items-center gap-2" style={{padding:'8px var(--gutter) calc(8px + var(--sab))'}} aria-label="Secciones">
@@ -1621,7 +1625,7 @@ Reglas:
                         {placeRow()}
                         <div className="flex gap-5">
                             <button onClick={()=>{ setAddOpen(false); setModal('dictate'); setResult(null); }} className="ms-link flex items-center gap-1.5"><Icon name="Mic" size={16}/> Dictar</button>
-                            <label className="ms-link cursor-pointer flex items-center gap-1.5"><Icon name="Receipt" size={16}/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setAddOpen(false); handleTicketUpload(e); }}/></label>
+                            <label className="ms-link cursor-pointer flex items-center gap-1.5" aria-label="Leer ticket"><Icon name="Receipt" size={16}/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setAddOpen(false); handleTicketUpload(e); }}/></label>
                         </div>
                         {recentlyAdded.length > 0 && <p className="ms-hint">Agregado: {recentlyAdded.join(', ')}</p>}
                     </div>
@@ -1640,7 +1644,7 @@ Reglas:
             )}
 
             {modal && !confirmData.isOpen && (
-                <Sheet testid="sheet" onClose={()=>{setModal(null); setEditItem(null); setResult(null)}}
+                <Sheet testid="sheet" onClose={()=>{setModal(null); setEditItem(null); setResult(null)}} noX={modal==='more' || modal==='filters'}
                     title={{settings:'Ajustes', edit:'Editar', dictate:'Dictado', chef:'Chef', ticket:'Ticket', suggest:'Sugerencias', more:'Más', filters:'Ver y ordenar', view: viewItem ? viewItem.name : ''}[modal]}
                     footer={modalFooter()}>
 
@@ -1801,20 +1805,20 @@ Reglas:
 
                         {modal === 'more' && (
                             <div className="ms-menu">
-                                <label className="ms-menu-item" data-act="ticket" aria-label="Leer ticket"><Icon name="Receipt"/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setModal(null); handleTicketUpload(e); }}/></label>
-                                <button className="ms-menu-item" onClick={()=>{ setModal('dictate'); setResult(null); }}><Icon name="Mic"/> Dictar productos</button>
                                 <button className="ms-menu-item" onClick={()=>{ setModal('chef'); setResult(null); handleChef(); }}><Icon name="Chef"/> ¿Qué cocino con lo de casa?</button>
                                 <button className="ms-menu-item" onClick={()=>setModal('suggest')}><Icon name="Sparkles"/> Sugerencias</button>
                                 {tab==='shop' && list.length > 0 && <button className="ms-menu-item" onClick={()=>{ setModal(null); shareList(); }}><Icon name="Share"/> Compartir lista</button>}
-                                <button className="ms-menu-item" onClick={()=>{ setModal(null); handleExportCSV(); }}><Icon name="Download"/> Exportar CSV</button>
-                                <label className="ms-menu-item"><Icon name="Upload"/> Importar CSV<input type="file" accept=".csv" onChange={(e)=>{ setModal(null); handleImportCSV(e); }} className="hidden"/></label>
+                                <div className="ms-menu-item ms-menu-split">
+                                    <button onClick={()=>{ setModal(null); handleExportCSV(); }}><Icon name="Download"/> Exportar CSV</button>
+                                    <label className="cursor-pointer"><Icon name="Upload"/> Importar CSV<input type="file" accept=".csv" onChange={(e)=>{ setModal(null); handleImportCSV(e); }} className="hidden"/></label>
+                                </div>
                                 <button className="ms-menu-item" onClick={()=>setModal('settings')}><Icon name="Settings"/> Ajustes</button>
                                 <button className="ms-menu-foot" onClick={hardRefresh}>Versión {APP_VERSION} · refrescar</button>
                             </div>
                         )}
 
                         {modal === 'filters' && (
-                            <div className="space-y-5">
+                            <div className="space-y-4">
                                 {tab==='shop' && <section><p className="ms-sh">Tienda</p><div className="ms-opts">{['Todos', ...savedTags.filter(x=>x!=='General')].map(t => opt(filter===t, ()=>setFilter(t), t))}</div></section>}
                                 {tab==='inv' && <section><p className="ms-sh">Mostrar</p><div className="ms-opts">{[['Todos','Todo'],['MariKondo','Mari Kondo'],['Agotados','Agotados'], ...categories.map(c=>[c,c])].map(([v,l]) => opt(invFilter===v, ()=>setInvFilter(v), l))}</div></section>}
                                 <section><p className="ms-sh">Ordenar</p><div className="ms-opts">{[['name','A-Z'],['recent','Recientes'],['expiry','Caducidad'],['price','Precio']].map(([v,l]) => opt(sortBy===v, ()=>setSortBy(v), l))}</div></section>

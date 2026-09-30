@@ -1,4 +1,5 @@
-// Navegación única v27 (Claro): barra abajo con Lista / Casa / Historial y el + del lado del pulgar.
+// Navegación única (Claro): barra abajo con Lista / Casa / Historial y el + del lado del pulgar.
+// v28: búsqueda, filtros y Más también abajo; nada tocable en la mitad de arriba.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -74,5 +75,51 @@ test('acciones principales dentro de la zona del pulgar (390x844)', async () => 
         const y = await page.evaluate((l) => { const el = [...document.querySelectorAll('[data-testid="add"] button, [data-testid="add"] label')].find((b) => b.textContent.trim() === l); const r = el.getBoundingClientRect(); return r.top + r.height / 2; }, label);
         assert.ok(y >= H / 2, `${label} en la hoja de agregar: y=${y}`);
     }
+    await page.close();
+});
+
+// Criterio v28: cero controles tocables en la mitad de arriba (sin contar las filas de la lista),
+// en las vistas y en las hojas que se abren desde ellas, en iPhone 390x844 y 430x932.
+const VIEWS = {
+    'Lista': () => __ms.setTab('shop'),
+    'Casa': () => __ms.setTab('inv'),
+    'Historial': () => __ms.setTab('hist'),
+    'Rendimientos': () => { __ms.setTab('hist'); __ms.setHistView('rend'); },
+    'hoja Más': () => __ms.setModal('more'),
+    'hoja Ver y ordenar (Lista)': () => { __ms.setTab('shop'); __ms.setModal('filters'); },
+    'hoja Ver y ordenar (Casa)': () => { __ms.setTab('inv'); __ms.setModal('filters'); },
+    'hoja Agregar': () => __ms.setAddOpen(true),
+};
+for (const [w, h, top] of [[390, 844, 47], [430, 932, 59]]) {
+    test(`nada tocable en la mitad de arriba (${w}x${h})`, async () => {
+        for (const [name, open] of Object.entries(VIEWS)) {
+            const { page } = await openApp(browser, server.url, { items, safeArea: { top, bottom: 34 } });
+            await page.setViewport({ ...IPHONE, width: w, height: h });
+            await page.evaluate(open); await new Promise((r) => setTimeout(r, 300));
+            const above = await page.evaluate(() => {
+                const H = innerHeight, scope = document.querySelector('.ms-overlay .ms-sheet') || document.getElementById('root');
+                return [...scope.querySelectorAll('button,input:not([type=file]),select,textarea,label:has(input[type=file])')]
+                    .filter((el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && r.bottom > 0 && cs.visibility !== 'hidden' && !el.closest('.hidden') && !el.closest('[data-item],[data-testid="rendimientos"]') && r.top + r.height / 2 < H / 2; })
+                    .map((el) => (el.getAttribute('aria-label') || el.textContent || el.placeholder).trim().slice(0, 30));
+            });
+            assert.deepEqual(above, [], name);
+            await page.close();
+        }
+    });
+}
+
+test('con el teclado abierto la búsqueda queda visible y filtra', async () => {
+    const { page } = await openApp(browser, server.url, { items, safeArea: { top: 47, bottom: 34 } });
+    await page.focus('input[aria-label="Buscar"]');
+    await setVisualViewport(page, 508);
+    await new Promise((r) => setTimeout(r, 200));
+    await page.type('input[aria-label="Buscar"]', 'aceite');
+    const r = await page.evaluate(() => {
+        const el = document.querySelector('input[aria-label="Buscar"]'), b = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return { top: b.top, bottom: b.bottom, visible: el.contains(hit) || hit === el, rows: document.querySelectorAll('[data-item]').length };
+    });
+    assert.ok(r.bottom <= 508 && r.top >= 0 && r.visible, JSON.stringify(r));
+    assert.ok(r.rows > 0 && r.rows < 20, `filas filtradas: ${r.rows}`);
     await page.close();
 });

@@ -151,8 +151,8 @@ test('Leer un ticket actualiza precios y registra cada producto en el historial'
         items, extra: { gem_key: 'test-key' },
         mock: { 'generativelanguage.googleapis.com': { candidates: [{ content: { parts: [{ text: JSON.stringify(ticket) }] } }] } },
     });
-    await page.click('[aria-label="Más"]');
-    await page.waitForSelector('[data-testid="sheet"]');
+    await page.click('.ms-bottomnav [aria-label="Agregar"]');
+    await page.waitForSelector('[data-testid="add"]');
     const input = await page.$('label[aria-label="Leer ticket"] input[type=file]');
     await input.uploadFile(path.join(ROOT, 'icon-192.png'));
     await page.waitForFunction(() => (JSON.parse(localStorage.getItem('purchases_v1') || '[]')).length === 2, { timeout: 10000 });
