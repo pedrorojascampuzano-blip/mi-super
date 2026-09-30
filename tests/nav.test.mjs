@@ -1,39 +1,39 @@
-// Variantes de navegación de prueba (A/B/C). La actual sigue siendo el default.
+// Navegación única v27 (Claro): barra abajo con Lista / Casa / Historial y el + del lado del pulgar.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, startServer, launch, openApp, setVisualViewport } from './helpers.mjs';
+import { ROOT, startServer, launch, openApp, setVisualViewport, IPHONE } from './helpers.mjs';
 
 const items = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/items.json'), 'utf8'));
 let server, browser;
 before(async () => { server = await startServer(); browser = await launch(); });
 after(async () => { await browser?.close(); server?.srv.close(); });
 
-const state = (page) => page.evaluate(() => ({ nav: document.querySelector('[data-nav]').dataset.nav, bottom: !!document.querySelector('.ms-bottomnav'), composer: !!document.querySelector('[data-composer]') }));
+const hasNav = (page) => page.evaluate(() => !!document.querySelector('.ms-bottomnav'));
 
-test('sin elegir nada se queda la navegación actual', async () => {
+test('hay una sola navegación y los parámetros viejos (?nav, ?dir) no la cambian', async () => {
+    for (const q of ['', '?nav=a', '?nav=b', '?dir=mercado']) {
+        const { page } = await openApp(browser, server.url + q, { items });
+        const r = await page.evaluate(() => ({ navs: document.querySelectorAll('.ms-bottomnav').length, tabs: [...document.querySelectorAll('[data-tab]')].map((b) => b.dataset.tab), composer: !!document.querySelector('[data-composer]') }));
+        assert.deepEqual(r, { navs: 1, tabs: ['shop', 'inv', 'hist'], composer: false }, q);
+        await page.close();
+    }
+});
+
+test('la barra cambia de sección y el título lo dice', async () => {
     const { page } = await openApp(browser, server.url, { items });
-    assert.deepEqual(await state(page), { nav: 'actual', bottom: false, composer: false });
-    await page.close();
-});
-
-test('?nav=a se recuerda y el selector de Ajustes la cambia', async () => {
-    const { page } = await openApp(browser, server.url + '?nav=a', { items });
-    assert.equal((await state(page)).nav, 'a');
-    assert.equal(await page.evaluate(() => localStorage.getItem('nav_variant')), 'a');
-    await page.click('.ms-bottomnav [aria-label="Ajustes"]');
-    await page.evaluate(() => [...document.querySelectorAll('[data-testid="sheet"] button')].find((b) => b.textContent.startsWith('C ·')).click());
-    await new Promise((r) => setTimeout(r, 200));
-    assert.equal(await page.evaluate(() => localStorage.getItem('nav_variant')), 'c');
-    await page.close();
-});
-
-test('A: la barra inferior cambia de sección y + agrega sin cerrar la hoja', async () => {
-    const { page } = await openApp(browser, server.url, { items: [], extra: { nav_variant: 'a' } });
+    const title = () => page.evaluate(() => document.querySelector('.ms-stitle').textContent);
+    assert.equal(await title(), 'Lista');
     await page.click('.ms-bottomnav [data-tab="inv"]');
-    assert.equal(await page.evaluate(() => document.querySelector('.ms-bottomnav [aria-current="page"]').dataset.tab), 'inv');
-    await page.click('.ms-bottomnav [data-tab="shop"]');
+    assert.equal(await title(), 'Casa');
+    await page.click('.ms-bottomnav [data-tab="hist"]');
+    assert.equal(await title(), 'Historial');
+    await page.close();
+});
+
+test('+ agrega varios seguidos sin cerrar la hoja', async () => {
+    const { page } = await openApp(browser, server.url, { items: [] });
     await page.click('.ms-bottomnav [aria-label="Agregar"]');
     await page.waitForSelector('[data-testid="add"] input');
     await page.type('[data-testid="add"] input', 'Tortillas'); await page.keyboard.press('Enter');
@@ -44,29 +44,35 @@ test('A: la barra inferior cambia de sección y + agrega sin cerrar la hoja', as
     await page.close();
 });
 
-test('A y C: la barra inferior se esconde con el teclado abierto', async () => {
-    for (const nav of ['a', 'c']) {
-        const { page } = await openApp(browser, server.url, { items, extra: { nav_variant: nav } });
-        assert.equal((await state(page)).bottom, true);
-        await setVisualViewport(page, 508);
-        await new Promise((r) => setTimeout(r, 200));
-        assert.equal((await state(page)).bottom, false, nav);
-        await page.close();
-    }
+test('la barra se esconde con el teclado abierto', async () => {
+    const { page } = await openApp(browser, server.url, { items });
+    assert.equal(await hasNav(page), true);
+    await setVisualViewport(page, 508);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(await hasNav(page), false);
+    await page.close();
 });
 
-test('B: el campo para escribir queda abajo y el swipe cambia de pestaña', async () => {
-    const { page } = await openApp(browser, server.url, { items, extra: { nav_variant: 'b' } });
-    const r = await page.evaluate(() => document.querySelector('[data-composer] input').getBoundingClientRect().top);
-    assert.ok(r > 700, `el campo está en y=${r}`);
-    const current = () => page.evaluate(() => document.querySelector('.ms-tabs [aria-selected="true"]').dataset.tab);
-    // touchEnd reporta el último punto movido; se hace en dos pasos para que el desplazamiento cuente
-    await page.touchscreen.touchStart(330, 600); await page.touchscreen.touchMove(200, 603); await page.touchscreen.touchMove(120, 605); await page.touchscreen.touchEnd();
-    await new Promise((res) => setTimeout(res, 150));
-    assert.equal(await current(), 'inv');
-    const y2 = await page.evaluate(() => { const r = [...document.querySelectorAll('[data-item] .ms-name')][3].getBoundingClientRect(); return r.top + r.height / 2; });
-    await page.touchscreen.touchStart(80, y2); await page.touchscreen.touchMove(200, y2 + 3); await page.touchscreen.touchMove(300, y2 + 5); await page.touchscreen.touchEnd();
-    await new Promise((res) => setTimeout(res, 150));
-    assert.equal(await current(), 'shop');
+// Criterio de la v27: en 390x844 todas las acciones principales quedan en la mitad de abajo de la pantalla.
+test('acciones principales dentro de la zona del pulgar (390x844)', async () => {
+    const { page } = await openApp(browser, server.url, { items, safeArea: { top: 47, bottom: 34 } });
+    const center = (sel) => page.evaluate((sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return r.top + r.height / 2; }, sel);
+    const H = IPHONE.height;
+    const checks = {
+        'agregar (+)': '.ms-bottomnav [aria-label="Agregar"]',
+        'ir a Casa': '.ms-bottomnav [data-tab="inv"]',
+        'ir a Historial': '.ms-bottomnav [data-tab="hist"]',
+        'finalizar compra': '[data-act="checkout"]',
+    };
+    for (const [name, sel] of Object.entries(checks)) {
+        const y = await center(sel);
+        assert.ok(y !== null && y >= H / 2, `${name}: y=${y}`);
+    }
+    await page.click('.ms-bottomnav [aria-label="Agregar"]');
+    await page.waitForSelector('[data-testid="add"] input');
+    for (const label of ['Dictar', 'Leer ticket']) {
+        const y = await page.evaluate((l) => { const el = [...document.querySelectorAll('[data-testid="add"] button, [data-testid="add"] label')].find((b) => b.textContent.trim() === l); const r = el.getBoundingClientRect(); return r.top + r.height / 2; }, label);
+        assert.ok(y >= H / 2, `${label} en la hoja de agregar: y=${y}`);
+    }
     await page.close();
 });

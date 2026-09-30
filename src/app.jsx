@@ -43,15 +43,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '26';
-
-// Direcciones de diseño en prueba: cada una fija su navegación ('a' pestañas abajo, 'b' escribir abajo, 'c' barra única).
-const DIRS = {
-    fresco: { label: 'Fresco', nav: 'a', bar: '#ffffff' },
-    mercado: { label: 'Mercado', nav: 'b', bar: '#ffffff' },
-    claro: { label: 'Claro', nav: 'c', bar: '#f2f2f7' },
-};
-const isDir = (x) => Object.prototype.hasOwnProperty.call(DIRS, x);
+const APP_VERSION = '27';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -139,29 +131,6 @@ const SuperApp = () => {
     // Historial de compras (nuevo en v25). Solo se agrega; vive en este dispositivo.
     const [purchases, setPurchases] = useState(() => { try { return JSON.parse(localStorage.getItem('purchases_v1')) || []; } catch { return []; } });
     const [histView, setHistView] = useState('compras');
-    // Navegación: 'actual' (v24) o variantes de prueba 'a' | 'b' | 'c'. ?nav=x en la URL la fija.
-    const [navVariant, setNavVariant] = useState(() => {
-        try {
-            const q = new URLSearchParams(location.search).get('nav');
-            if (q && ['actual','a','b','c'].includes(q)) { localStorage.setItem('nav_variant', q); return q; }
-            return localStorage.getItem('nav_variant') || 'actual';
-        } catch { return 'actual'; }
-    });
-    useEffect(() => { try { localStorage.setItem('nav_variant', navVariant); } catch {} }, [navVariant]);
-    // Direcciones visuales de prueba (v27). ?dir=fresco|mercado|claro; vacío = diseño v26.
-    // Cada dirección trae su propia navegación para el pulgar y una interfaz simplificada.
-    const [dir, setDir] = useState(() => {
-        try {
-            const q = new URLSearchParams(location.search).get('dir');
-            if (q !== null) { const v = isDir(q) ? q : ''; localStorage.setItem('design_dir', v); return v; }
-            const s = localStorage.getItem('design_dir'); return isDir(s) ? s : '';
-        } catch { return ''; }
-    });
-    useEffect(() => {
-        try { localStorage.setItem('design_dir', dir); } catch {}
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dir ? DIRS[dir].bar : '#161615');
-    }, [dir]);
-    const simple = !!dir;
     const [addOpen, setAddOpen] = useState(false);
     const [recentlyAdded, setRecentlyAdded] = useState([]);
     useEffect(() => { if (!addOpen) setRecentlyAdded([]); }, [addOpen]);
@@ -1330,17 +1299,16 @@ Reglas:
     const toggleListening = () => { if(isListening && recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); } else startListening(); };
 
     // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setNavVariant, setAddOpen, setDir, items };
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items };
 
     const modalFooter = () => {
         if (modal === 'edit' && editItem) return <button onClick={saveEdit} className="ms-btn ms-btn-primary">Guardar cambios</button>;
-        if (modal === 'view' && viewItem && simple) return (
+        if (modal === 'view' && viewItem) return (
             <div className="grid grid-cols-2 gap-2">
                 <button onClick={()=>{ const it = viewItem; setModal(null); handleSmartDelete(it); }} className="ms-btn ms-btn-danger">Borrar</button>
                 <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="ms-btn ms-btn-primary">Editar</button>
             </div>
         );
-        if (modal === 'view' && viewItem) return <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="ms-btn ms-btn-secondary">Editar</button>;
         if (modal === 'settings') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-primary">Guardar</button>;
         if (modal === 'dictate') return (
             <div className="grid grid-cols-2 gap-2">
@@ -1474,80 +1442,16 @@ Reglas:
     const cartCount = items.filter(i=>i.status==='cart').length;
     const expiryLabel = (i) => isCriticalExpired(i) ? 'caducado' : isSoftExpired(i) ? `consumo pref. ${i.expiry}` : `caduca ${i.expiry}`;
 
+    // Fila: un solo toque para lo principal (marcar o pasar a la lista); editar, foto y borrar viven en el detalle.
     const renderItem = (i) => {
-        const units = formatUnits(i);
-        const flags = (tab==='inv' && invFilter==='MariKondo') ? [isDuplicate(i) && 'duplicado', noPhoto(i) && 'sin foto', isStale(i) && 'sin comprar en 6 meses'].filter(Boolean) : [];
-        const onRowTap = () => {
-            if(tab==='shop') setItems(items.map(x=>x.id===i.id?{...x,status:i.status==='needed'?'cart':'needed'}:x));
-            if(i.status==='inactive') setItems(items.map(x=>x.id===i.id?{...x,status:'stocked'}:x));
-        };
-        return (
-            <div key={i.id} data-item className={`ms-row ${i.status==='cart'?'is-cart':''} ${i.status==='inactive'?'is-inactive':''}`}>
-                {tab==='shop' && (
-                    <button className="ms-check" onClick={onRowTap} aria-label={i.status==='cart' ? `Quitar ${i.name} del carrito` : `Marcar ${i.name} en el carrito`} aria-pressed={i.status==='cart'}>
-                        <span>{i.status==='cart' && <Icon name="Check" size={14}/>}</span>
-                    </button>
-                )}
-                {i.photoUrl && (
-                    <img src={i.photoUrl} alt="" loading="lazy" onClick={()=>openView(i)} className="ms-thumb cursor-pointer active:opacity-70"/>
-                )}
-                <div className="flex-1 min-w-0 cursor-pointer" onClick={onRowTap}>
-                    <p className="ms-name">
-                        {i.name}
-                        {i.isEssential && <span className="ms-meta" style={{marginLeft:6}} title="Esencial">★</span>}
-                    </p>
-                    <p className="ms-meta">
-                        {[i.category, (i.places||[]).filter(p=>p && p!=='General').join(', ')].filter(Boolean).join(' · ')}
-                        {units && tab!=='inv' && <> · {units}</>}
-                        {tab==='shop' ? (() => { const li = lastInfo(i, purchases); return li.price !== null ? <> · la última vez {fmtMoney(li.price)}{li.priceDate ? ` (${fmtDay(li.priceDate)})` : ''}</> : null; })() : (i.price && <> · ${i.price}</>)}
-                        {i.purchaseAt && <> · {i.purchaseAt}</>}
-                        {i.expiry && <> · <span className={isCriticalExpired(i)?'danger':isSoftExpired(i)?'warn':''}>{expiryLabel(i)}</span></>}
-                        {flags.length > 0 && <> · {flags.join(', ')}</>}
-                    </p>
-                    {tab==='inv' && (
-                        (i.unitCount || i.unitSize) ? (
-                            <p className="ms-meta" onClick={e=>{e.stopPropagation(); openEdit(i);}}>{units}</p>
-                        ) : (
-                            <input
-                                value={i.qty || ''}
-                                placeholder="+ cantidad"
-                                aria-label={`Cantidad de ${i.name}`}
-                                onClick={e=>e.stopPropagation()}
-                                onChange={e=>setItems(items.map(x=>x.id===i.id?{...x,qty:e.target.value}:x))}
-                                className="ms-qty"
-                            />
-                        )
-                    )}
-                    {cloudMode && i.updatedBy && (
-                        <p className="ms-meta">Editado por {nicknameOf(i.updatedBy)} · {relativeTime(i.updatedAt)}</p>
-                    )}
-                </div>
-                <div className="ms-row-actions">
-                    {(tab==='inv' && i.status!=='inactive') && (
-                        <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} aria-label="Pasar a la lista" className="ms-icon-btn" style={{color:'var(--ink)'}}><Icon name="Plus" size={20}/></button>
-                    )}
-                    {tab==='inv' && (
-                        <label className="ms-icon-btn" aria-label={i.photoUrl ? 'Cambiar foto' : 'Tomar foto'} onClick={e=>e.stopPropagation()}>
-                            <Icon name="Camera" size={19}/>
-                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; if (f) handleQuickPhoto(i, f); e.target.value=''; }}/>
-                        </label>
-                    )}
-                    <button onClick={()=>openEdit(i)} aria-label="Editar" className="ms-icon-btn"><Icon name="Edit" size={18}/></button>
-                    <button onClick={()=>handleSmartDelete(i)} aria-label="Borrar" className="ms-icon-btn"><Icon name="Trash" size={18}/></button>
-                </div>
-            </div>
-        );
-    };
-
-    // Fila simplificada (direcciones v27): un solo toque para lo principal y el resto en el detalle.
-    const renderSimpleItem = (i) => {
         const inCart = i.status === 'cart';
         const toggle = () => setItems(items.map(x=>x.id===i.id?{...x,status:i.status==='needed'?'cart':'needed'}:x));
         const li = tab==='shop' ? lastInfo(i, purchases) : null;
         const meta = tab==='shop'
-            ? [li && li.price !== null ? `la última vez ${fmtMoney(li.price)}` : (i.category || '')].filter(Boolean)
+            ? [li && li.price !== null ? `la última vez ${fmtMoney(li.price)}${li.priceDate ? ` (${fmtDay(li.priceDate)})` : ''}` : (i.category || '')].filter(Boolean)
             : tab==='inv'
-                ? [i.qty || formatUnits(i), i.expiry && expiryLabel(i)].filter(Boolean)
+                ? [i.qty || formatUnits(i), i.expiry && expiryLabel(i),
+                    ...(invFilter==='MariKondo' ? [isDuplicate(i) && 'duplicado', noPhoto(i) && 'sin foto', isStale(i) && 'sin comprar en 6 meses'] : [])].filter(Boolean)
                 : [i.lastBought && fmtDay(i.lastBought), i.category].filter(Boolean);
         return (
             <div key={i.id} data-item className={`ms-srow ${inCart?'is-cart':''} ${i.status==='inactive'?'is-inactive':''}`}>
@@ -1566,83 +1470,43 @@ Reglas:
                         <Icon name="Plus" size={16}/> Lista
                     </button>
                 )}
+                {tab==='inv' && i.status==='inactive' && (
+                    <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'stocked'}:x))} aria-label={`${i.name} ya hay en casa`} className="ms-sadd">Ya hay</button>
+                )}
             </div>
         );
     };
-    const rowFor = (i) => simple ? renderSimpleItem(i) : renderItem(i);
-
-    const isNav = (v) => (simple ? DIRS[dir].nav : navVariant) === v;
-    const hasBottomNav = (isNav('a') || isNav('c')) && !kbOpen;
+    const hasBottomNav = !kbOpen;
     const addPlaceholder = tab==='inv' ? "Agregar a Casa…" : "¿Qué falta?";
 
-    const mastTop = (
-        <>
-            {updateReady && (
-                <div className="flex items-center justify-between gap-3 mb-2 text-sm">
-                    <span>Hay una versión nueva.</span>
-                    <button onClick={applyUpdate} className="ms-link-strong" style={{color:'var(--paper)'}}>Recargar</button>
-                </div>
-            )}
-            <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                    <h1 className="serif" style={{fontSize:26, lineHeight:1.1, fontWeight:500}}>Mi Súper</h1>
-                    <p className="ms-mast-meta flex items-center gap-1.5 mt-0.5">
-                        {cloudMode && <>
-                            <span aria-hidden="true" style={{width:6,height:6,borderRadius:3,background: syncStatus==='online' ? '#7fb08f' : syncStatus==='connecting' ? '#c9a25b' : '#c7706a'}}></span>
-                            <span className="truncate">{groupName} · {members.length || 1} {members.length === 1 ? 'miembro' : 'miembros'}</span>
-                            <span>·</span>
-                        </>}
-                        <button onClick={hardRefresh} title="Limpiar cache y recargar" className="py-1">v{APP_VERSION} · <span className="underline">refrescar</span></button>
-                    </p>
-                </div>
-                <nav className="flex items-center -mr-2" aria-label="Herramientas">
-                    <label className="ms-icon-btn" aria-label="Leer ticket"><Icon name="Camera"/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>
-                    <button onClick={()=>{setModal('dictate'); setResult(null)}} aria-label="Dictar" className="ms-icon-btn"><Icon name="Mic"/></button>
-                    <button onClick={()=>{setModal('chef'); setResult(null); handleChef();}} aria-label="Chef" className="ms-icon-btn"><Icon name="Chef"/></button>
-                    <button onClick={()=>setModal('suggest')} aria-label="Sugerencias" className="ms-icon-btn"><Icon name="Sparkles"/></button>
-                    <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-icon-btn"><Icon name="Settings"/></button>
-                </nav>
-            </div>
-        </>
-    );
-
-    const addField = (onPaper, autoFocus) => (
-        <div className={`ms-add ${onPaper ? 'on-paper' : ''}`}>
+    const addField = (autoFocus) => (
+        <div className="ms-add on-paper">
             <input value={name} autoFocus={autoFocus} onChange={e=>setName(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter' && !e.nativeEvent.isComposing) addItem(e); }} enterKeyHint="done" placeholder={addPlaceholder} aria-label={tab==='inv'?'Agregar a Casa':'Agregar a la lista'}/>
             <label className="ms-icon-btn" aria-label="Agregar con foto" title="Tomar foto o elegir varias del rollo">
                 <Icon name="Camera"/>
                 <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const fs = e.target.files; if (fs && fs.length) handleBulkPhotoAdd(fs); e.target.value=''; }}/>
             </label>
-            <button onClick={addItem} disabled={!name} aria-label="Agregar" className={`ms-icon-btn ${onPaper ? '' : '-mr-2'}`}><Icon name="Plus" size={22}/></button>
+            <button onClick={addItem} disabled={!name} aria-label="Agregar" className="ms-icon-btn"><Icon name="Plus" size={22}/></button>
         </div>
     );
 
-    const placeRow = (onPaper) => (
+    const placeRow = () => (
         <div className="flex items-center gap-3">
-            <span className={onPaper ? 'shrink-0' : 'ms-mast-meta shrink-0'} style={{fontSize:13, color: onPaper ? 'var(--ink-3)' : undefined}}>Lugar</span>
+            <span className="shrink-0" style={{fontSize:13, color:'var(--ink-3)'}}>Lugar</span>
             <div className="flex gap-4 overflow-x-auto no-scrollbar items-center flex-1 min-w-0" data-hscroll>
                 {savedTags.map(t=>(<button key={t} onClick={()=>toggleTag(t)} aria-pressed={selTags.includes(t)} className="ms-toggle">{t}</button>))}
-                <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="+ lugar" aria-label="Nuevo lugar" className="bg-transparent outline-none shrink-0 py-2" style={{width:72, fontSize:14, color: onPaper ? 'var(--ink)' : 'var(--paper)'}}/>
+                <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onBlur={addTag} onKeyDown={e=>e.key==='Enter'&&addTag()} placeholder="+ lugar" aria-label="Nuevo lugar" className="bg-transparent outline-none shrink-0 py-2" style={{width:72, fontSize:14, color:'var(--ink)'}}/>
             </div>
         </div>
     );
 
     const TABS = [{id:'shop',l:'Lista',icon:'ShoppingBag'},{id:'inv',l:'Casa',icon:'Home'},{id:'hist',l:'Historial',icon:'History'}];
-    const tabsTop = (
-        <div className="ms-tabs shrink-0" role="tablist">
-            {TABS.map(x=>(
-                <button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)} className="ms-tab">{x.l}<span className="ms-count">{tabCounts[x.id]}</span></button>
-            ))}
-        </div>
-    );
-
-    // Cabecera y herramientas simplificadas (direcciones v27): el título dice dónde estás,
-    // todo lo secundario vive en "Más" y los filtros en una sola hoja.
+    // Cabecera: el título dice dónde estás; lo secundario vive en "Más" y los filtros en una sola hoja.
     const neededCount = items.filter(i=>i.status==='needed').length;
     const subtitle = tab==='shop' ? `${neededCount} por comprar${cartCount ? ` · ${cartCount} en el carrito` : ''}`
         : tab==='inv' ? `${tabCounts.inv} productos en casa` : `${tabCounts.hist} productos comprados`;
     const filtersActive = (tab==='shop' && filter!=='Todos') || (tab==='inv' && invFilter!=='Todos') || groupByPlace || sortBy!=='name';
-    const simpleHeader = (
+    const header = (
         <header className="ms-shead shrink-0">
             {updateReady && (
                 <div className="flex items-center justify-between gap-3 mb-2 text-sm">
@@ -1662,7 +1526,7 @@ Reglas:
             </div>
         </header>
     );
-    const simpleTools = (
+    const tools = (
         <div className="ms-stools">
             {tab==='hist' ? (
                 <div className="ms-seg" role="tablist">
@@ -1689,93 +1553,28 @@ Reglas:
     );
     const opt = (on, onClick, label) => <button key={label} onClick={onClick} aria-pressed={on} className="ms-opt">{label}</button>;
 
-    // Swipe lateral entre pestañas (variante B). Ignora las filas que ya se desplazan a lo ancho.
-    const swipe = useRef(null);
-    const onTouchStart = (e) => { if (!isNav('b') || e.target.closest('[data-hscroll],input,textarea,select')) { swipe.current = null; return; } const t = e.touches[0]; swipe.current = { x: t.clientX, y: t.clientY }; };
-    const onTouchEnd = (e) => {
-        const st = swipe.current; swipe.current = null;
-        if (!st) return;
-        const t = e.changedTouches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
-        if (Math.abs(dx) < 70 || Math.abs(dy) > 45) return;
-        const order = TABS.map(x => x.id), i = order.indexOf(tab);
-        const next = order[Math.max(0, Math.min(order.length - 1, i + (dx < 0 ? 1 : -1)))];
-        if (next !== tab) setTab(next);
-    };
-
     return (
-        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}} data-nav={simple ? DIRS[dir].nav : navVariant} data-dir={dir || undefined}>
-            {simple ? simpleHeader : (
-            <header className="ms-mast shrink-0 z-10">
-                {mastTop}
-                {(isNav('actual')) && <>{addField(false)}{placeRow(false)}</>}
-            </header>
-            )}
+        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}}>
+            {header}
 
-            {!simple && (isNav('actual') || isNav('b')) && tabsTop}
-
-            <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-                {simple ? simpleTools : <div className="ms-tools">
-                    {tab==='hist' && (
-                        <div className="flex gap-5 items-center" role="tablist">
-                            <button onClick={()=>setHistView('compras')} aria-pressed={histView==='compras'} className="ms-toggle">Compras</button>
-                            <button onClick={()=>setHistView('rend')} aria-pressed={histView==='rend'} className="ms-toggle">Rendimientos</button>
-                        </div>
-                    )}
-                    {tab==='shop' && (
-                        <div className="flex gap-4 overflow-x-auto no-scrollbar items-center" data-hscroll>
-                            <span className="shrink-0" style={{fontSize:13, color:'var(--ink-3)'}}>Ver</span>
-                            <button onClick={()=>setFilter('Todos')} aria-pressed={filter==='Todos'} className="ms-toggle">Todos</button>
-                            {savedTags.filter(x=>x!=='General').map(t=>(<button key={t} onClick={()=>setFilter(t)} aria-pressed={filter===t} className="ms-toggle">{t}</button>))}
-                        </div>
-                    )}
-                    {tab==='inv' && (
-                        <div className="flex gap-4 overflow-x-auto no-scrollbar" data-hscroll>
-                            <button onClick={()=>setInvFilter('Todos')} aria-pressed={invFilter==='Todos'} className="ms-toggle">Todos</button>
-                            <button onClick={()=>setInvFilter('MariKondo')} aria-pressed={invFilter==='MariKondo'} className="ms-toggle">Mari Kondo</button>
-                            {categories.map(c=>(<button key={c} onClick={()=>setInvFilter(c)} aria-pressed={invFilter===c} className="ms-toggle">{c}</button>))}
-                            <button onClick={()=>setInvFilter('Agotados')} aria-pressed={invFilter==='Agotados'} className="ms-toggle">Agotados</button>
-                        </div>
-                    )}
-                    {(tab==='inv' || tab==='shop') && (
-                        <div className="flex gap-3 items-center mt-1">
-                            <label className="ms-search">
-                                <Icon name="Search" size={16}/>
-                                <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Buscar" aria-label="Buscar"/>
-                                {searchQuery && <button onClick={()=>setSearchQuery('')} aria-label="Borrar búsqueda" className="ms-icon-btn -mr-2" style={{width:32,height:32}}><Icon name="X" size={16}/></button>}
-                            </label>
-                            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} aria-label="Ordenar" className="ms-select">
-                                <option value="name">A-Z</option>
-                                <option value="recent">Recientes</option>
-                                <option value="expiry">Caducidad</option>
-                                <option value="price">Precio</option>
-                            </select>
-                            <button onClick={()=>setGroupByPlace(!groupByPlace)} aria-pressed={groupByPlace} aria-label={tab==='shop' ? 'Agrupar por categoría' : 'Agrupar por lugar'} title={tab==='shop' ? 'Agrupar por categoría' : 'Agrupar por lugar'} className="ms-icon-btn -mr-2" style={{color: groupByPlace ? 'var(--ink)' : 'var(--ink-3)', background: groupByPlace ? 'var(--paper-2)' : 'transparent'}}><Icon name="Layers" size={18}/></button>
-                        </div>
-                    )}
-                    {(tab==='inv' || tab==='hist' || tab==='shop') && (
-                        <div className="flex justify-end gap-5 -mb-1">
-                            {tab==='shop' && list.length > 0 && <button onClick={shareList} className="ms-link flex items-center gap-1.5"><Icon name="Share" size={15}/> Compartir lista</button>}
-                            {tab!=='shop' && !(tab==='hist' && histView==='rend') && <button onClick={handleExportCSV} className="ms-link">Exportar CSV</button>}
-                            {tab==='inv' && <label className="ms-link cursor-pointer">Importar CSV<input type="file" accept=".csv" onChange={handleImportCSV} className="hidden"/></label>}
-                        </div>
-                    )}
-                </div>}
+            <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                {tools}
 
                 {tab==='hist' && histView==='rend' ? renderRendimientos() : (<>
                 {invFilter==='MariKondo' && tab==='inv' && list.length > 0 && (
                     <p className="ms-note"><strong>{list.length}</strong> candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses.</p>
                 )}
 
-                <div className={simple ? 'ms-slist' : ''} style={simple ? undefined : {borderTop:'1px solid var(--rule)'}}>
+                <div className="ms-slist">
                     {groupedList
-                        ? groupedList.flatMap(([g, gitems]) => [<div key={"_g_"+g} className="ms-group">{g} · {gitems.length}</div>, ...gitems.map(rowFor)])
-                        : list.map(rowFor)}
+                        ? groupedList.flatMap(([g, gitems]) => [<div key={"_g_"+g} className="ms-group">{g} · {gitems.length}</div>, ...gitems.map(renderItem)])
+                        : list.map(renderItem)}
                 </div>
 
                 {!list.length && (
                     <div className="ms-empty">
                         {searchQuery.trim() ? <>Nada coincide con “{searchQuery.trim()}”.</>
-                            : tab==='shop' ? <>Tu lista está vacía.<br/><span style={{fontSize:13}}>{isNav('actual') ? 'Escribe arriba lo que falta o usa el micrófono.' : isNav('b') ? 'Escribe abajo lo que falta o usa el micrófono.' : 'Toca + para agregar lo que falta.'}</span></>
+                            : tab==='shop' ? <>Tu lista está vacía.<br/><span style={{fontSize:13}}>Toca + para agregar lo que falta.</span></>
                             : tab==='hist' ? <>Aún no hay compras registradas.</>
                             : invFilter==='MariKondo' ? <>Nada que mari-kondear.</>
                             : <>No hay nada aquí todavía.</>}
@@ -1786,7 +1585,7 @@ Reglas:
             </div>
 
             {(undoSnapshot || notice || showCheckout) && (
-                <div className={`ms-dock shrink-0 ${hasBottomNav || isNav('b') ? 'over-nav' : ''}`} data-dock>
+                <div className={`ms-dock shrink-0 ${hasBottomNav ? 'over-nav' : ''}`} data-dock>
                     {undoSnapshot && (
                         <div className="ms-toast" role="status">
                             <span>{undoSnapshot.label}</span>
@@ -1794,49 +1593,16 @@ Reglas:
                         </div>
                     )}
                     {notice && !undoSnapshot && <div className="ms-toast" role="status"><span>{notice}</span></div>}
-                    {showCheckout && !simple && (
-                        <button onClick={requestCheckout} className="ms-btn ms-btn-accent justify-between">
+                    {showCheckout && (
+                        <button onClick={requestCheckout} className="ms-btn ms-btn-accent justify-between" data-act="checkout">
                             <span>Finalizar compra</span>
                             <span className="flex items-center gap-2 font-normal">{cartCount} en el carrito <Icon name="ArrowRight" size={18}/></span>
                         </button>
                     )}
-                    {showCheckout && simple && (
-                        <button onClick={requestCheckout} className="ms-btn ms-btn-accent justify-between" data-act="checkout">
-                            <span>Finalizar compra</span>
-                            <span className="flex items-center gap-2 font-normal">{cartCount} <Icon name="ArrowRight" size={18}/></span>
-                        </button>
-                    )}
                 </div>
             )}
 
-            {isNav('b') && (
-                <div className={`ms-composer shrink-0 ${kbOpen ? 'kb' : ''}`} data-composer>
-                    {simple && !kbOpen && <div className="ms-seg mb-2" role="tablist">{TABS.map(x => (<button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)}>{x.l}</button>))}</div>}
-                    {kbOpen && <div className="mb-1">{placeRow(true)}</div>}
-                    {simple ? (
-                        <div className="flex items-center gap-1">
-                            <div className="flex-1 min-w-0">{addField(true)}</div>
-                            {!name && <button onClick={()=>{setModal('dictate'); setResult(null)}} aria-label="Dictar" className="ms-icon-btn ms-mic"><Icon name="Mic" size={22}/></button>}
-                            {!name && <label className="ms-icon-btn ms-mic" aria-label="Leer ticket"><Icon name="Receipt" size={22}/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>}
-                        </div>
-                    ) : addField(true)}
-                </div>
-            )}
-
-            {hasBottomNav && isNav('a') && (
-                <nav className="ms-bottomnav shrink-0" aria-label="Secciones">
-                    {TABS.slice(0, 2).map(x => (
-                        <button key={x.id} data-tab={x.id} aria-current={tab===x.id ? 'page' : undefined} onClick={()=>setTab(x.id)} className="ms-navbtn"><Icon name={x.icon} size={22}/><span>{x.l} <span className="ms-count">{tabCounts[x.id]}</span></span></button>
-                    ))}
-                    <button onClick={()=>setAddOpen(true)} aria-label="Agregar" className="ms-navadd"><span><Icon name="Plus" size={24}/></span></button>
-                    {TABS.slice(2).map(x => (
-                        <button key={x.id} data-tab={x.id} aria-current={tab===x.id ? 'page' : undefined} onClick={()=>setTab(x.id)} className="ms-navbtn"><Icon name={x.icon} size={22}/><span>{x.l} <span className="ms-count">{tabCounts[x.id]}</span></span></button>
-                    ))}
-                    {!simple && <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-navbtn"><Icon name="Settings" size={22}/><span>Ajustes</span></button>}
-                </nav>
-            )}
-
-            {hasBottomNav && isNav('c') && (
+            {hasBottomNav && (
                 <nav className="ms-bottomnav shrink-0 items-center gap-2" style={{padding:'8px var(--gutter) calc(8px + var(--sab))'}} aria-label="Secciones">
                     <div className="ms-seg" role="tablist">
                         {TABS.map(x => (
@@ -1851,11 +1617,11 @@ Reglas:
                 <Sheet testid="add" title={tab==='inv' ? 'Agregar a Casa' : 'Agregar a la lista'} onClose={()=>setAddOpen(false)}
                     footer={<button onClick={()=>setAddOpen(false)} className="ms-btn ms-btn-secondary">Listo</button>}>
                     <div className="space-y-3">
-                        {addField(true, true)}
-                        {placeRow(true)}
+                        {addField(true)}
+                        {placeRow()}
                         <div className="flex gap-5">
                             <button onClick={()=>{ setAddOpen(false); setModal('dictate'); setResult(null); }} className="ms-link flex items-center gap-1.5"><Icon name="Mic" size={16}/> Dictar</button>
-                            <label className="ms-link cursor-pointer flex items-center gap-1.5"><Icon name="Camera" size={16}/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setAddOpen(false); handleTicketUpload(e); }}/></label>
+                            <label className="ms-link cursor-pointer flex items-center gap-1.5"><Icon name="Receipt" size={16}/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setAddOpen(false); handleTicketUpload(e); }}/></label>
                         </div>
                         {recentlyAdded.length > 0 && <p className="ms-hint">Agregado: {recentlyAdded.join(', ')}</p>}
                     </div>
@@ -2035,7 +1801,7 @@ Reglas:
 
                         {modal === 'more' && (
                             <div className="ms-menu">
-                                <label className="ms-menu-item" data-act="ticket"><Icon name="Receipt"/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setModal(null); handleTicketUpload(e); }}/></label>
+                                <label className="ms-menu-item" data-act="ticket" aria-label="Leer ticket"><Icon name="Receipt"/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setModal(null); handleTicketUpload(e); }}/></label>
                                 <button className="ms-menu-item" onClick={()=>{ setModal('dictate'); setResult(null); }}><Icon name="Mic"/> Dictar productos</button>
                                 <button className="ms-menu-item" onClick={()=>{ setModal('chef'); setResult(null); handleChef(); }}><Icon name="Chef"/> ¿Qué cocino con lo de casa?</button>
                                 <button className="ms-menu-item" onClick={()=>setModal('suggest')}><Icon name="Sparkles"/> Sugerencias</button>
@@ -2058,23 +1824,6 @@ Reglas:
 
                         {modal === 'settings' && (
                             <div className="space-y-4">
-                                <section>
-                                    <p className="ms-h">Diseño · prueba</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {[['','v26 (actual)'], ...Object.entries(DIRS).map(([k, d]) => [k, d.label])].map(([v, l]) => (
-                                            <button key={v || 'v26'} onClick={()=>setDir(v)} aria-pressed={dir===v} className={`ms-btn ${dir===v ? 'ms-btn-primary' : 'ms-btn-secondary'}`} style={{fontSize:14, minHeight:44}}>{l}</button>
-                                        ))}
-                                    </div>
-                                </section>
-                                {!simple && <section>
-                                    <p className="ms-h">Navegación · prueba</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {[['actual','Actual (arriba)'],['a','A · Pestañas abajo'],['b','B · Escribir abajo'],['c','C · Barra única']].map(([v, l]) => (
-                                            <button key={v} onClick={()=>setNavVariant(v)} aria-pressed={navVariant===v} className={`ms-btn ${navVariant===v ? 'ms-btn-primary' : 'ms-btn-secondary'}`} style={{fontSize:14, minHeight:44}}>{l}</button>
-                                        ))}
-                                    </div>
-                                    <p className="ms-hint">Cambia dónde quedan las pestañas y el botón de agregar. Tus datos no cambian.</p>
-                                </section>}
                                 {cloudConfigured && cloudMode && (
                                     <section>
                                         <p className="ms-h">Grupo</p>

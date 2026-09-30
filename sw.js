@@ -1,4 +1,4 @@
-const CACHE = 'mi-super-v26';
+const CACHE = 'mi-super-v27';
 const PRECACHE = [
   './',
   './index.html',

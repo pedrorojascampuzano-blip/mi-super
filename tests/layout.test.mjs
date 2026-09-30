@@ -61,8 +61,10 @@ for (const vh of [844, 508]) {
     test(`Modal Editar (visualViewport ${vh}px): "Guardar cambios" siempre visible y nada tapado`, async () => {
         const { page } = await openApp(browser, server.url, { items, safeArea: { top: 47, bottom: 34 } });
         await page.click('[data-tab="inv"]');
-        await page.click('[data-testid="scroll"] [aria-label="Editar"]');
+        await page.click('[data-testid="scroll"] [data-item] .ms-sbody');
         await page.waitForSelector('[data-testid="sheet"]');
+        await page.evaluate(() => [...document.querySelectorAll('[data-testid="sheet"] button')].find((b) => b.textContent === 'Editar').click());
+        await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="sheet"] button')].some((b) => b.textContent.includes('Guardar')));
         await page.focus('[data-testid="sheet"] input');
         await setVisualViewport(page, vh);
         const save = await page.evaluate(() => { const b = [...document.querySelectorAll('[data-testid="sheet"] button')].find((x) => x.textContent.includes('Guardar')); const r = b.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });

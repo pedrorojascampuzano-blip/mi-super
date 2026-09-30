@@ -11,19 +11,25 @@ after(async () => { await browser?.close(); server?.srv.close(); });
 
 const clickTab = (page, t) => page.click(`[data-tab="${{ Lista: 'shop', Casa: 'inv', Historial: 'hist' }[t]}"]`);
 
-test('Editar y Borrar de cada fila miden al menos 36x40 px', async () => {
+test('Los botones de cada fila miden al menos 36x40 px y Editar/Borrar viven en el detalle', async () => {
     const { page } = await openApp(browser, server.url, { items });
     for (const t of ['Lista', 'Casa']) {
         await clickTab(page, t);
-        const sizes = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Editar"],[aria-label="Borrar"]')].map((b) => { const r = b.getBoundingClientRect(); return [r.width, r.height]; }));
+        const sizes = await page.evaluate(() => [...document.querySelectorAll('[data-item] button')].map((b) => { const r = b.getBoundingClientRect(); return [r.width, r.height, b.getAttribute('aria-label') || b.textContent]; }));
         assert.ok(sizes.length > 0, t);
-        for (const [w, h] of sizes) assert.ok(w >= 36 && h >= 40, `${t}: ${w}x${h}`);
+        for (const [w, h, l] of sizes) assert.ok(w >= 36 && h >= 40, `${t} ${l}: ${w}x${h}`);
     }
+    await page.click('[data-item] .ms-sbody');
+    await page.waitForSelector('[data-testid="sheet"]');
+    const labels = await page.evaluate(() => [...document.querySelectorAll('[data-testid="sheet"] .ms-sheet-foot button')].map((b) => b.textContent));
+    assert.deepEqual(labels, ['Borrar', 'Editar']);
     await page.close();
 });
 
 test('Enter en "¿Qué falta?" agrega el item a la lista y se guarda en data_v4', async () => {
     const { page } = await openApp(browser, server.url, { items: [] });
+    await page.click('.ms-bottomnav [aria-label="Agregar"]');
+    await page.waitForSelector('[data-testid="add"] input');
     await page.type('input[placeholder="¿Qué falta?"]', 'Tortillas');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelector('[data-testid="scroll"]').textContent.includes('Tortillas'));
@@ -52,6 +58,8 @@ test('Los datos existentes en data_v4 se cargan intactos (sin migración)', asyn
 test('Compartir lista manda el texto por navigator.share', async () => {
     const { page } = await openApp(browser, server.url, { items });
     await page.evaluate(() => { window.__shared = null; navigator.share = async (d) => { window.__shared = d.text; }; });
+    await page.click('[aria-label="Más"]');
+    await page.waitForSelector('[data-testid="sheet"]');
     await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Compartir lista')).click());
     await page.waitForFunction(() => window.__shared);
     const txt = await page.evaluate(() => window.__shared);
@@ -63,7 +71,9 @@ test('Compartir lista manda el texto por navigator.share', async () => {
 
 test('Lista agrupada muestra encabezados por categoría', async () => {
     const { page } = await openApp(browser, server.url, { items });
-    await page.click('[aria-label="Agrupar por categoría"]');
+    await page.click('[aria-label="Ver y ordenar"]');
+    await page.waitForSelector('[data-testid="sheet"]');
+    await page.evaluate(() => [...document.querySelectorAll('.ms-opt')].find((b) => b.textContent === 'Por categoría').click());
     const heads = await page.evaluate(() => [...document.querySelectorAll('.ms-group')].map((h) => h.textContent));
     const cats = new Set(items.filter((i) => i.status === 'needed' || i.status === 'cart').map((i) => i.category));
     assert.equal(heads.length, cats.size);
@@ -141,6 +151,8 @@ test('Leer un ticket actualiza precios y registra cada producto en el historial'
         items, extra: { gem_key: 'test-key' },
         mock: { 'generativelanguage.googleapis.com': { candidates: [{ content: { parts: [{ text: JSON.stringify(ticket) }] } }] } },
     });
+    await page.click('[aria-label="Más"]');
+    await page.waitForSelector('[data-testid="sheet"]');
     const input = await page.$('label[aria-label="Leer ticket"] input[type=file]');
     await input.uploadFile(path.join(ROOT, 'icon-192.png'));
     await page.waitForFunction(() => (JSON.parse(localStorage.getItem('purchases_v1') || '[]')).length === 2, { timeout: 10000 });
