@@ -30,6 +30,10 @@ const Icon = ({ name, size = 20, className = "" }) => {
         Layers: <><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></>,
         AlertTriangle: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
         Copies: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
+        ChevronRight: <polyline points="9 6 15 12 9 18" />,
+        More: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>,
+        Sliders: <><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="17" x2="20" y2="17" /><circle cx="9" cy="7" r="2.2" fill="currentColor" /><circle cx="15" cy="17" r="2.2" fill="currentColor" /></>,
+        Receipt: <path d="M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2z M9 7h6 M9 11h6 M9 15h4" />,
         Share: <><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></>
     };
     return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{i[name]}</svg>;
@@ -40,6 +44,14 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
 const APP_VERSION = '26';
+
+// Direcciones de diseño en prueba: cada una fija su navegación ('a' pestañas abajo, 'b' escribir abajo, 'c' barra única).
+const DIRS = {
+    fresco: { label: 'Fresco', nav: 'a', bar: '#ffffff' },
+    mercado: { label: 'Mercado', nav: 'b', bar: '#ffffff' },
+    claro: { label: 'Claro', nav: 'c', bar: '#f2f2f7' },
+};
+const isDir = (x) => Object.prototype.hasOwnProperty.call(DIRS, x);
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -136,6 +148,20 @@ const SuperApp = () => {
         } catch { return 'actual'; }
     });
     useEffect(() => { try { localStorage.setItem('nav_variant', navVariant); } catch {} }, [navVariant]);
+    // Direcciones visuales de prueba (v27). ?dir=fresco|mercado|claro; vacío = diseño v26.
+    // Cada dirección trae su propia navegación para el pulgar y una interfaz simplificada.
+    const [dir, setDir] = useState(() => {
+        try {
+            const q = new URLSearchParams(location.search).get('dir');
+            if (q !== null) { const v = isDir(q) ? q : ''; localStorage.setItem('design_dir', v); return v; }
+            const s = localStorage.getItem('design_dir'); return isDir(s) ? s : '';
+        } catch { return ''; }
+    });
+    useEffect(() => {
+        try { localStorage.setItem('design_dir', dir); } catch {}
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dir ? DIRS[dir].bar : '#161615');
+    }, [dir]);
+    const simple = !!dir;
     const [addOpen, setAddOpen] = useState(false);
     const [recentlyAdded, setRecentlyAdded] = useState([]);
     useEffect(() => { if (!addOpen) setRecentlyAdded([]); }, [addOpen]);
@@ -1304,10 +1330,16 @@ Reglas:
     const toggleListening = () => { if(isListening && recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); } else startListening(); };
 
     // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setNavVariant, setAddOpen, items };
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setNavVariant, setAddOpen, setDir, items };
 
     const modalFooter = () => {
         if (modal === 'edit' && editItem) return <button onClick={saveEdit} className="ms-btn ms-btn-primary">Guardar cambios</button>;
+        if (modal === 'view' && viewItem && simple) return (
+            <div className="grid grid-cols-2 gap-2">
+                <button onClick={()=>{ const it = viewItem; setModal(null); handleSmartDelete(it); }} className="ms-btn ms-btn-danger">Borrar</button>
+                <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="ms-btn ms-btn-primary">Editar</button>
+            </div>
+        );
         if (modal === 'view' && viewItem) return <button onClick={()=>{ setModal('edit'); setEditItem({...viewItem}); }} className="ms-btn ms-btn-secondary">Editar</button>;
         if (modal === 'settings') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-primary">Guardar</button>;
         if (modal === 'dictate') return (
@@ -1507,7 +1539,39 @@ Reglas:
         );
     };
 
-    const isNav = (v) => navVariant === v;
+    // Fila simplificada (direcciones v27): un solo toque para lo principal y el resto en el detalle.
+    const renderSimpleItem = (i) => {
+        const inCart = i.status === 'cart';
+        const toggle = () => setItems(items.map(x=>x.id===i.id?{...x,status:i.status==='needed'?'cart':'needed'}:x));
+        const li = tab==='shop' ? lastInfo(i, purchases) : null;
+        const meta = tab==='shop'
+            ? [li && li.price !== null ? `la última vez ${fmtMoney(li.price)}` : (i.category || '')].filter(Boolean)
+            : tab==='inv'
+                ? [i.qty || formatUnits(i), i.expiry && expiryLabel(i)].filter(Boolean)
+                : [i.lastBought && fmtDay(i.lastBought), i.category].filter(Boolean);
+        return (
+            <div key={i.id} data-item className={`ms-srow ${inCart?'is-cart':''} ${i.status==='inactive'?'is-inactive':''}`}>
+                {tab==='shop' && (
+                    <button className="ms-scheck" onClick={toggle} aria-label={inCart ? `Quitar ${i.name} del carrito` : `Marcar ${i.name} en el carrito`} aria-pressed={inCart}>
+                        <span>{inCart && <Icon name="Check" size={16}/>}</span>
+                    </button>
+                )}
+                <button className="ms-sbody" onClick={tab==='shop' ? toggle : ()=>openView(i)}>
+                    <span className="ms-sname">{i.name}</span>
+                    {meta.length > 0 && <span className={`ms-smeta ${tab==='inv' && isCriticalExpired(i) ? 'danger' : ''}`}>{meta.join(' · ')}</span>}
+                </button>
+                {tab==='shop' && <button onClick={()=>openView(i)} aria-label={`Detalles de ${i.name}`} className="ms-icon-btn ms-sfaint"><Icon name="ChevronRight" size={18}/></button>}
+                {tab==='inv' && i.status!=='inactive' && (
+                    <button onClick={()=>setItems(items.map(x=>x.id===i.id?{...x,status:'needed'}:x))} aria-label={`Pasar ${i.name} a la lista`} className="ms-sadd">
+                        <Icon name="Plus" size={16}/> Lista
+                    </button>
+                )}
+            </div>
+        );
+    };
+    const rowFor = (i) => simple ? renderSimpleItem(i) : renderItem(i);
+
+    const isNav = (v) => (simple ? DIRS[dir].nav : navVariant) === v;
     const hasBottomNav = (isNav('a') || isNav('c')) && !kbOpen;
     const addPlaceholder = tab==='inv' ? "Agregar a Casa…" : "¿Qué falta?";
 
@@ -1572,6 +1636,59 @@ Reglas:
         </div>
     );
 
+    // Cabecera y herramientas simplificadas (direcciones v27): el título dice dónde estás,
+    // todo lo secundario vive en "Más" y los filtros en una sola hoja.
+    const neededCount = items.filter(i=>i.status==='needed').length;
+    const subtitle = tab==='shop' ? `${neededCount} por comprar${cartCount ? ` · ${cartCount} en el carrito` : ''}`
+        : tab==='inv' ? `${tabCounts.inv} productos en casa` : `${tabCounts.hist} productos comprados`;
+    const filtersActive = (tab==='shop' && filter!=='Todos') || (tab==='inv' && invFilter!=='Todos') || groupByPlace || sortBy!=='name';
+    const simpleHeader = (
+        <header className="ms-shead shrink-0">
+            {updateReady && (
+                <div className="flex items-center justify-between gap-3 mb-2 text-sm">
+                    <span>Hay una versión nueva.</span>
+                    <button onClick={applyUpdate} className="ms-link-strong">Recargar</button>
+                </div>
+            )}
+            <div className="flex items-end justify-between gap-2">
+                <div className="min-w-0">
+                    <h1 className="ms-stitle">{{shop:'Lista',inv:'Casa',hist:'Historial'}[tab]}</h1>
+                    <p className="ms-ssub truncate">
+                        {cloudMode && <span aria-hidden="true" className="ms-dot" style={{background: syncStatus==='online' ? '#34a86a' : syncStatus==='connecting' ? '#d6a23a' : '#d0584f'}}></span>}
+                        {subtitle}
+                    </p>
+                </div>
+                <button onClick={()=>setModal('more')} aria-label="Más" className="ms-icon-btn -mr-2"><Icon name="More" size={24}/></button>
+            </div>
+        </header>
+    );
+    const simpleTools = (
+        <div className="ms-stools">
+            {tab==='hist' ? (
+                <div className="ms-seg" role="tablist">
+                    <button onClick={()=>setHistView('compras')} aria-selected={histView==='compras'} role="tab">Compras</button>
+                    <button onClick={()=>setHistView('rend')} aria-selected={histView==='rend'} role="tab">Rendimientos</button>
+                </div>
+            ) : (
+                <div className="flex items-center gap-2">
+                    <label className="ms-ssearch">
+                        <Icon name="Search" size={17}/>
+                        <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Buscar" aria-label="Buscar"/>
+                        {searchQuery && <button onClick={()=>setSearchQuery('')} aria-label="Borrar búsqueda" className="ms-icon-btn -mr-2" style={{width:32,height:32}}><Icon name="X" size={16}/></button>}
+                    </label>
+                    <button onClick={()=>setModal('filters')} aria-label="Ver y ordenar" aria-pressed={filtersActive} className="ms-icon-btn ms-sfilter"><Icon name="Sliders" size={20}/></button>
+                </div>
+            )}
+            {tab!=='hist' && filtersActive && (
+                <p className="ms-sactive">
+                    {[tab==='shop' && filter!=='Todos' && filter, tab==='inv' && invFilter!=='Todos' && (invFilter==='MariKondo' ? 'Mari Kondo' : invFilter), sortBy!=='name' && {recent:'recientes',expiry:'por caducidad',price:'por precio'}[sortBy], groupByPlace && 'agrupado'].filter(Boolean).join(' · ')}
+                    <button onClick={()=>{ setFilter('Todos'); setInvFilter('Todos'); setSortBy('name'); setGroupByPlace(false); }} className="ms-link-strong">Quitar</button>
+                </p>
+            )}
+        </div>
+    );
+    const opt = (on, onClick, label) => <button key={label} onClick={onClick} aria-pressed={on} className="ms-opt">{label}</button>;
+
     // Swipe lateral entre pestañas (variante B). Ignora las filas que ya se desplazan a lo ancho.
     const swipe = useRef(null);
     const onTouchStart = (e) => { if (!isNav('b') || e.target.closest('[data-hscroll],input,textarea,select')) { swipe.current = null; return; } const t = e.touches[0]; swipe.current = { x: t.clientX, y: t.clientY }; };
@@ -1586,16 +1703,18 @@ Reglas:
     };
 
     return (
-        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}} data-nav={navVariant}>
+        <div className="w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden" style={{background:'var(--paper)'}} data-nav={simple ? DIRS[dir].nav : navVariant} data-dir={dir || undefined}>
+            {simple ? simpleHeader : (
             <header className="ms-mast shrink-0 z-10">
                 {mastTop}
                 {(isNav('actual')) && <>{addField(false)}{placeRow(false)}</>}
             </header>
+            )}
 
-            {(isNav('actual') || isNav('b')) && tabsTop}
+            {!simple && (isNav('actual') || isNav('b')) && tabsTop}
 
             <div data-testid="scroll" className="ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-                <div className="ms-tools">
+                {simple ? simpleTools : <div className="ms-tools">
                     {tab==='hist' && (
                         <div className="flex gap-5 items-center" role="tablist">
                             <button onClick={()=>setHistView('compras')} aria-pressed={histView==='compras'} className="ms-toggle">Compras</button>
@@ -1640,17 +1759,17 @@ Reglas:
                             {tab==='inv' && <label className="ms-link cursor-pointer">Importar CSV<input type="file" accept=".csv" onChange={handleImportCSV} className="hidden"/></label>}
                         </div>
                     )}
-                </div>
+                </div>}
 
                 {tab==='hist' && histView==='rend' ? renderRendimientos() : (<>
                 {invFilter==='MariKondo' && tab==='inv' && list.length > 0 && (
                     <p className="ms-note"><strong>{list.length}</strong> candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses.</p>
                 )}
 
-                <div style={{borderTop:'1px solid var(--rule)'}}>
+                <div className={simple ? 'ms-slist' : ''} style={simple ? undefined : {borderTop:'1px solid var(--rule)'}}>
                     {groupedList
-                        ? groupedList.flatMap(([g, gitems]) => [<div key={"_g_"+g} className="ms-group">{g} · {gitems.length}</div>, ...gitems.map(renderItem)])
-                        : list.map(renderItem)}
+                        ? groupedList.flatMap(([g, gitems]) => [<div key={"_g_"+g} className="ms-group">{g} · {gitems.length}</div>, ...gitems.map(rowFor)])
+                        : list.map(rowFor)}
                 </div>
 
                 {!list.length && (
@@ -1675,10 +1794,16 @@ Reglas:
                         </div>
                     )}
                     {notice && !undoSnapshot && <div className="ms-toast" role="status"><span>{notice}</span></div>}
-                    {showCheckout && (
+                    {showCheckout && !simple && (
                         <button onClick={requestCheckout} className="ms-btn ms-btn-accent justify-between">
                             <span>Finalizar compra</span>
                             <span className="flex items-center gap-2 font-normal">{cartCount} en el carrito <Icon name="ArrowRight" size={18}/></span>
+                        </button>
+                    )}
+                    {showCheckout && simple && (
+                        <button onClick={requestCheckout} className="ms-btn ms-btn-accent justify-between" data-act="checkout">
+                            <span>Finalizar compra</span>
+                            <span className="flex items-center gap-2 font-normal">{cartCount} <Icon name="ArrowRight" size={18}/></span>
                         </button>
                     )}
                 </div>
@@ -1686,8 +1811,15 @@ Reglas:
 
             {isNav('b') && (
                 <div className={`ms-composer shrink-0 ${kbOpen ? 'kb' : ''}`} data-composer>
+                    {simple && !kbOpen && <div className="ms-seg mb-2" role="tablist">{TABS.map(x => (<button key={x.id} data-tab={x.id} role="tab" aria-selected={tab===x.id} onClick={()=>setTab(x.id)}>{x.l}</button>))}</div>}
                     {kbOpen && <div className="mb-1">{placeRow(true)}</div>}
-                    {addField(true)}
+                    {simple ? (
+                        <div className="flex items-center gap-1">
+                            <div className="flex-1 min-w-0">{addField(true)}</div>
+                            {!name && <button onClick={()=>{setModal('dictate'); setResult(null)}} aria-label="Dictar" className="ms-icon-btn ms-mic"><Icon name="Mic" size={22}/></button>}
+                            {!name && <label className="ms-icon-btn ms-mic" aria-label="Leer ticket"><Icon name="Receipt" size={22}/><input type="file" accept="image/*" className="hidden" onChange={handleTicketUpload}/></label>}
+                        </div>
+                    ) : addField(true)}
                 </div>
             )}
 
@@ -1700,7 +1832,7 @@ Reglas:
                     {TABS.slice(2).map(x => (
                         <button key={x.id} data-tab={x.id} aria-current={tab===x.id ? 'page' : undefined} onClick={()=>setTab(x.id)} className="ms-navbtn"><Icon name={x.icon} size={22}/><span>{x.l} <span className="ms-count">{tabCounts[x.id]}</span></span></button>
                     ))}
-                    <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-navbtn"><Icon name="Settings" size={22}/><span>Ajustes</span></button>
+                    {!simple && <button onClick={()=>setModal('settings')} aria-label="Ajustes" className="ms-navbtn"><Icon name="Settings" size={22}/><span>Ajustes</span></button>}
                 </nav>
             )}
 
@@ -1743,7 +1875,7 @@ Reglas:
 
             {modal && !confirmData.isOpen && (
                 <Sheet testid="sheet" onClose={()=>{setModal(null); setEditItem(null); setResult(null)}}
-                    title={{settings:'Ajustes', edit:'Editar', dictate:'Dictado', chef:'Chef', ticket:'Ticket', suggest:'Sugerencias', view: viewItem ? viewItem.name : ''}[modal]}
+                    title={{settings:'Ajustes', edit:'Editar', dictate:'Dictado', chef:'Chef', ticket:'Ticket', suggest:'Sugerencias', more:'Más', filters:'Ver y ordenar', view: viewItem ? viewItem.name : ''}[modal]}
                     footer={modalFooter()}>
 
                         {modal === 'edit' && editItem && (() => {
@@ -1901,9 +2033,40 @@ Reglas:
                             </div>
                         )}
 
+                        {modal === 'more' && (
+                            <div className="ms-menu">
+                                <label className="ms-menu-item" data-act="ticket"><Icon name="Receipt"/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setModal(null); handleTicketUpload(e); }}/></label>
+                                <button className="ms-menu-item" onClick={()=>{ setModal('dictate'); setResult(null); }}><Icon name="Mic"/> Dictar productos</button>
+                                <button className="ms-menu-item" onClick={()=>{ setModal('chef'); setResult(null); handleChef(); }}><Icon name="Chef"/> ¿Qué cocino con lo de casa?</button>
+                                <button className="ms-menu-item" onClick={()=>setModal('suggest')}><Icon name="Sparkles"/> Sugerencias</button>
+                                {tab==='shop' && list.length > 0 && <button className="ms-menu-item" onClick={()=>{ setModal(null); shareList(); }}><Icon name="Share"/> Compartir lista</button>}
+                                <button className="ms-menu-item" onClick={()=>{ setModal(null); handleExportCSV(); }}><Icon name="Download"/> Exportar CSV</button>
+                                <label className="ms-menu-item"><Icon name="Upload"/> Importar CSV<input type="file" accept=".csv" onChange={(e)=>{ setModal(null); handleImportCSV(e); }} className="hidden"/></label>
+                                <button className="ms-menu-item" onClick={()=>setModal('settings')}><Icon name="Settings"/> Ajustes</button>
+                                <button className="ms-menu-foot" onClick={hardRefresh}>Versión {APP_VERSION} · refrescar</button>
+                            </div>
+                        )}
+
+                        {modal === 'filters' && (
+                            <div className="space-y-5">
+                                {tab==='shop' && <section><p className="ms-sh">Tienda</p><div className="ms-opts">{['Todos', ...savedTags.filter(x=>x!=='General')].map(t => opt(filter===t, ()=>setFilter(t), t))}</div></section>}
+                                {tab==='inv' && <section><p className="ms-sh">Mostrar</p><div className="ms-opts">{[['Todos','Todo'],['MariKondo','Mari Kondo'],['Agotados','Agotados'], ...categories.map(c=>[c,c])].map(([v,l]) => opt(invFilter===v, ()=>setInvFilter(v), l))}</div></section>}
+                                <section><p className="ms-sh">Ordenar</p><div className="ms-opts">{[['name','A-Z'],['recent','Recientes'],['expiry','Caducidad'],['price','Precio']].map(([v,l]) => opt(sortBy===v, ()=>setSortBy(v), l))}</div></section>
+                                <section><p className="ms-sh">Agrupar</p><div className="ms-opts">{opt(!groupByPlace, ()=>setGroupByPlace(false), 'No')}{opt(groupByPlace, ()=>setGroupByPlace(true), tab==='shop' ? 'Por categoría' : 'Por lugar')}</div></section>
+                            </div>
+                        )}
+
                         {modal === 'settings' && (
                             <div className="space-y-4">
                                 <section>
+                                    <p className="ms-h">Diseño · prueba</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {[['','v26 (actual)'], ...Object.entries(DIRS).map(([k, d]) => [k, d.label])].map(([v, l]) => (
+                                            <button key={v || 'v26'} onClick={()=>setDir(v)} aria-pressed={dir===v} className={`ms-btn ${dir===v ? 'ms-btn-primary' : 'ms-btn-secondary'}`} style={{fontSize:14, minHeight:44}}>{l}</button>
+                                        ))}
+                                    </div>
+                                </section>
+                                {!simple && <section>
                                     <p className="ms-h">Navegación · prueba</p>
                                     <div className="grid grid-cols-2 gap-2">
                                         {[['actual','Actual (arriba)'],['a','A · Pestañas abajo'],['b','B · Escribir abajo'],['c','C · Barra única']].map(([v, l]) => (
@@ -1911,7 +2074,7 @@ Reglas:
                                         ))}
                                     </div>
                                     <p className="ms-hint">Cambia dónde quedan las pestañas y el botón de agregar. Tus datos no cambian.</p>
-                                </section>
+                                </section>}
                                 {cloudConfigured && cloudMode && (
                                     <section>
                                         <p className="ms-h">Grupo</p>

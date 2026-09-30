@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi Súper · tres direcciones</title>
+<style>
+  :root { --ink: #16161a; --ink-2: #55555c; --ink-3: #8a8a91; --rule: #e4e4e8; --bg: #ffffff; --soft: #f5f5f7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -.01em; }
+  h2 { font-size: 21px; margin: 48px 0 8px; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; max-width: 68ch; }
+  .lede { color: var(--ink-2); font-size: 17px; }
+  a { color: var(--ink); text-underline-offset: 3px; }
+  .grid { display: grid; grid-template-columns: 120px repeat(4, minmax(170px, 1fr)); gap: 12px 14px; align-items: start; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 0 16px; }
+  .scroll .grid { min-width: 860px; }
+  .scroll table { min-width: 640px; }
+  .colhead { font-weight: 600; font-size: 15px; }
+  .colhead small { display: block; font-weight: 400; color: var(--ink-3); font-size: 13px; }
+  .rowhead { font-size: 14px; color: var(--ink-2); padding-top: 8px; }
+  .shot { width: 100%; border-radius: 18px; border: 1px solid var(--rule); display: block; }
+  .dirs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 16px; }
+  @media (max-width: 760px) { .dirs { grid-template-columns: 1fr; } }
+  .dir { border-top: 3px solid var(--c); padding-top: 12px; }
+  .dir .key { font-size: 13px; color: var(--c); font-weight: 700; letter-spacing: .02em; }
+  .dir ul { margin: 8px 0 12px; padding-left: 18px; color: var(--ink-2); font-size: 15px; }
+  .dir a.try { font-weight: 600; }
+  .home { display: flex; flex-wrap: wrap; gap: 28px; padding: 28px 24px; background: linear-gradient(160deg, #cfd6e4, #e9e2dc); border-radius: 16px; margin-top: 12px; }
+  .app { width: 76px; text-align: center; font-size: 12px; color: #1d1d1f; }
+  .app img { width: 60px; height: 60px; border-radius: 13.5px; display: block; margin: 0 auto 6px; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .big { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px; }
+  .big figure { margin: 0; text-align: center; font-size: 13px; color: var(--ink-2); }
+  .big img { width: 120px; height: 120px; border-radius: 27px; display: block; margin-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+  th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 13px; }
+  td.n { font-variant-numeric: tabular-nums; }
+  .note { font-size: 14px; color: var(--ink-2); }
+  .answer { background: var(--soft); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
+  .answer p:last-child { margin-bottom: 0; }
+  .toggle { font-size: 14px; margin: 8px 0 12px; }
+  .toggle button { font: inherit; background: none; border: 0; padding: 4px 0; margin-right: 16px; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; }
+  .toggle button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mi Súper · tres direcciones para elegir</h1>
+  <p class="lede">Las tres parten de lo mismo: fondo claro, una sola navegación abajo, el título dice en qué sección estás y todo lo secundario (chef, sugerencias, exportar, ajustes) se va a un solo botón "Más". Cambian el color, el tono y cómo agregas productos.</p>
+  <p class="note">Las capturas son de la app real (no maquetas), con los 60 productos de tu alacena, en un iPhone de 390 × 844. Ninguna versión está publicada; producción sigue en v24.</p>
+
+  <div class="dirs">
+    <section class="dir" style="--c:#1f9d57">
+      <div class="key">A · FRESCO</div>
+      <h3>Verde, pestañas abajo</h3>
+      <ul>
+        <li>Barra de pestañas tipo iPhone: Lista, Casa, +, Historial.</li>
+        <li>El + abre una hoja para escribir varios seguidos, dictar o leer el ticket.</li>
+        <li>La más parecida a otras apps; nada que aprender.</li>
+      </ul>
+      <a class="try" href="../?dir=fresco">Probar A en el iPhone</a>
+    </section>
+    <section class="dir" style="--c:#e5572b">
+      <div class="key">B · MERCADO</div>
+      <h3>Naranja, escribes abajo</h3>
+      <ul>
+        <li>El campo "¿Qué falta?" siempre está abajo, como en WhatsApp: tocas y escribes, sin pasos extra.</li>
+        <li>Micrófono y ticket al lado del campo. Letra más grande en la lista.</li>
+        <li>A cambio, abajo hay tres franjas: Finalizar, pestañas y campo.</li>
+      </ul>
+      <a class="try" href="../?dir=mercado">Probar B en el iPhone</a>
+    </section>
+    <section class="dir" style="--c:#2f6fe4">
+      <div class="key">C · CLARO</div>
+      <h3>Azul, barra única</h3>
+      <ul>
+        <li>Estilo Recordatorios de iOS: fondo gris claro y la lista en un bloque blanco.</li>
+        <li>Una sola barra abajo: Lista / Casa / Historial y el + al lado del pulgar.</li>
+        <li>La más tranquila visualmente.</li>
+      </ul>
+      <a class="try" href="../?dir=claro">Probar C en el iPhone</a>
+    </section>
+  </div>
+
+  <h2>Las mismas 4 pantallas, contra la v24</h2>
+  <div class="toggle" role="group" aria-label="Tamaño de iPhone">
+    <button type="button" data-size="390x844" aria-pressed="true">iPhone 390 × 844</button>
+    <button type="button" data-size="430x932" aria-pressed="false">iPhone Pro Max 430 × 932</button>
+  </div>
+  <div class="scroll">
+    <div class="grid" id="shots"></div>
+  </div>
+  <p class="note">En "Agregar" se ve lo que aparece al tocar para escribir: en v24 el campo está arriba, en A y C se abre una hoja desde el +, en B escribes directo en el campo de abajo.</p>
+
+  <h2>Logos en la pantalla de inicio</h2>
+  <p>El logo actual es de abril (caja blanca sobre morado). Cada dirección trae el suyo; puedes combinar dirección y logo.</p>
+  <div class="home">
+    <div class="app"><img src="img/logo-v24.png" alt=""><span>Actual</span></div>
+    <div class="app"><img src="img/logo-fresco.png" alt=""><span>A · Fresco</span></div>
+    <div class="app"><img src="img/logo-mercado.png" alt=""><span>B · Mercado</span></div>
+    <div class="app"><img src="img/logo-claro.png" alt=""><span>C · Claro</span></div>
+  </div>
+  <div class="big">
+    <figure><img src="img/logo-fresco.png" alt="Logo A">A · bolsa con palomita</figure>
+    <figure><img src="img/logo-mercado.png" alt="Logo B">B · canasta</figure>
+    <figure><img src="img/logo-claro.png" alt="Logo C">C · lista con palomitas</figure>
+  </div>
+
+  <h2>Diagnóstico de la v26 y cuánto baja cada dirección</h2>
+  <p>Medido en pantallas reales (390 × 844, zona segura del iPhone). "Zona del pulgar" = mitad de abajo de la pantalla.</p>
+  <div class="scroll"><table>
+    <thead><tr><th></th><th>v24 (producción)</th><th>v26 A / B / C</th><th>A · Fresco</th><th>B · Mercado</th><th>C · Claro</th></tr></thead>
+    <tbody>
+      <tr><td>Controles fuera de las filas, Lista</td><td class="n">28</td><td class="n">21 / 22 / 20</td><td class="n">8</td><td class="n">12</td><td class="n">8</td></tr>
+      <tr><td>Controles fuera de las filas, Casa</td><td class="n">28</td><td class="n">21 / 22 / 20</td><td class="n">7</td><td class="n">11</td><td class="n">7</td></tr>
+      <tr><td>Textos fuera de las filas, Lista</td><td class="n">24</td><td class="n">19 / 18 / 15</td><td class="n">10</td><td class="n">7</td><td class="n">7</td></tr>
+      <tr><td>Botones por producto en Casa</td><td class="n">5</td><td class="n">5</td><td class="n">2</td><td class="n">2</td><td class="n">2</td></tr>
+      <tr><td>Acciones principales fuera del pulgar (de 5: agregar, dictar, ticket, ir a Casa, finalizar)</td><td class="n">4 (todas arriba menos Finalizar)</td><td class="n">2 / 3 / 2 (dictar y ticket siguen arriba)</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 style="margin-top:24px">Toques por tarea</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Tarea</th><th>v24</th><th>A · Fresco</th><th>B · Mercado</th><th>C · Claro</th></tr></thead>
+    <tbody>
+      <tr><td>Agregar un producto</td><td>1, arriba</td><td>2 (+ y escribir), abajo</td><td>1, abajo</td><td>2 (+ y escribir), abajo</td></tr>
+      <tr><td>Marcar comprado</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+      <tr><td>Finalizar compra</td><td>2 (botón y confirmar)</td><td>2</td><td>2</td><td>2</td></tr>
+      <tr><td>Ver Casa</td><td>1, a media pantalla</td><td>1, abajo</td><td>1, abajo</td><td>1, abajo</td></tr>
+      <tr><td>Dictar o leer ticket</td><td>1, esquina de arriba</td><td>2, abajo</td><td>1, abajo</td><td>2, abajo</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note" style="margin-top:12px">Lo que se movió de lugar en las tres: editar y borrar un producto ahora se hacen desde su detalle (tocas la flecha en Lista o el nombre en Casa); la cámara, editar y el bote de basura ya no están en cada fila. Buscar sigue arriba porque se usa poco; tienda, orden y agrupar viven en el botón de filtros junto a Buscar. Nada se quitó de la app.</p>
+
+  <div class="answer">
+    <h3>Para elegir</h3>
+    <p>Contesta con una letra: <strong>A</strong> (Fresco), <strong>B</strong> (Mercado) o <strong>C</strong> (Claro). Si quieres mezclar, dilo así: "B con logo A" o "C pero verde".</p>
+    <p class="note">En el iPhone también puedes cambiar de dirección desde Más → Ajustes → Diseño. La preview arranca con tu alacena de ejemplo y no se conecta a Supabase, así que lo que hagas ahí no toca tu lista real.</p>
+  </div>
+</main>
+<script>
+  const COLS = [['v24', 'v24', 'producción'], ['fresco', 'A · Fresco', 'verde'], ['mercado', 'B · Mercado', 'naranja'], ['claro', 'C · Claro', 'azul']];
+  const ROWS = [['lista', 'Lista'], ['agregar', 'Agregar'], ['casa', 'Casa'], ['historial', 'Historial']];
+  const render = (size) => {
+    const g = document.getElementById('shots');
+    g.innerHTML = '<div></div>' + COLS.map(([, t, s]) => `<div class="colhead">${t}<small>${s}</small></div>`).join('')
+      + ROWS.map(([k, l]) => `<div class="rowhead">${l}</div>` + COLS.map(([c, t]) => `<img class="shot" loading="lazy" src="img/${c}-${size}-${k}.jpg" alt="${t}, ${l}">`).join('')).join('');
+  };
+  document.querySelectorAll('.toggle button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.toggle button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    render(b.dataset.size);
+  }));
+  render('390x844');
+</script>
+<script src="https://anvil.tail8be012.ts.net/ticktack/ticktack.js"></script>
+<script>TickTrack.init({ endpoint: "https://anvil.tail8be012.ts.net/ticktack/report", project: "mi-super", lang: "es-MX" });</script>
+</body>
+</html>
