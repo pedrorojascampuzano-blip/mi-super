@@ -47,7 +47,8 @@ test('sendMsg: sin llave solo /report; con llave también /orquesta ligado a la 
     const log2 = [];
     const f2 = fakeFetch({ '/orquesta': [200, { ok: true }], '/report': [200, { ok: true, dir: 'd1' }] }, log2);
     r = await sendMsg({ texto: 'hola', shots: [], llave: 'K', f: f2 });
-    assert.equal(r.ligado, true); assert.equal(log2[1].body.code, ORQ_FILA); assert.equal(log2[1].body.dir, 'd1'); assert.equal(log2[1].headers['X-TT-Key'], 'K');
+    assert.equal(r.ligado, true); assert.equal(log2[1].body.code, ORQ_FILA); assert.equal(log2[1].body.dir, 'd1'); assert.equal(log2[1].url, ORQ_COLECTOR + '/orquesta?k=K');   // el preflight en vivo solo deja Content-Type: la llave va en la URL
+    assert.deepEqual(Object.keys(log2[1].headers), ['Content-Type']);
 });
 
 test('sendMsg: errores claros; /orquesta caído no tumba el envío', async () => {

@@ -91,7 +91,7 @@ ${body}`;
     let ligado = false;
     if (llave) {
       try {
-        const res = await f(ORQ_COLECTOR + "/orquesta", { method: "POST", headers: { "Content-Type": "application/json", "X-TT-Key": llave }, body: JSON.stringify({ dir: r.dir, code: ORQ_FILA }) });
+        const res = await f(ORQ_COLECTOR + "/orquesta?k=" + encodeURIComponent(llave), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: r.dir, code: ORQ_FILA }) });
         const j = await res.json();
         ligado = !!(res.ok && j.ok);
       } catch {
