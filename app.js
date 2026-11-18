@@ -14,6 +14,106 @@
 ${body}`;
   };
 
+  // src/orquesta.js
+  var ORQ_COLECTOR = "https://anvil.tail8be012.ts.net/ticktack";
+  var ORQ_PROYECTO = "misuper";
+  var ORQ_FILA = "PERS-misuper-orquesta";
+  var ORQ_MAX_TEXTO = 4e3;
+  var ORQ_MAX_FOTOS = 3;
+  var KEY_MSGS = "orq_msgs_v1";
+  var MAX_MSGS = 30;
+  var reportBody = ({ texto = "", shots = [], url = "", viewport = "" }) => {
+    const note = String(texto).trim().slice(0, ORQ_MAX_TEXTO);
+    const fotos = shots.filter((s) => s && s.data).slice(0, ORQ_MAX_FOTOS).map((s, i) => ({ data: s.data, mime: s.mime || "image/jpeg", ref: `foto ${i + 1}` }));
+    const body = {
+      note: note || (fotos.length ? "Captura desde Mi Súper (sin texto)." : ""),
+      type: "feature",
+      project: ORQ_PROYECTO,
+      url,
+      via: "misuper-app",
+      shots: fotos,
+      context: { viewport, app: "mi-super" }
+    };
+    return body;
+  };
+  var canSend = (texto, shots = []) => !!(String(texto).trim() || shots.length);
+  var estadoDe = (rep) => {
+    if (!rep) return "enviado";
+    if (rep.status === "done") return "atendido";
+    if (rep.status === "wontfix") return "descartado";
+    return "enviado";
+  };
+  var ESTADO_TXT = { pendiente: "Sin enviar", enviado: "Enviado · esperando", atendido: "Respondió la orquesta", descartado: "Descartado" };
+  var mergeEstados = (msgs, reports) => {
+    const por = new Map((reports || []).map((r) => [r.dir, r]));
+    return msgs.map((m) => {
+      if (m.estado === "pendiente" || !m.id) return m;
+      const r = por.get(m.id);
+      if (!r) return m;
+      const estado = estadoDe(r);
+      const respuesta = String(r.reply || r.respuesta || "").trim();
+      return { ...m, estado, respuesta: respuesta || m.respuesta || "", visto: m.visto && m.estado === estado ? true : false };
+    });
+  };
+  var loadMsgs = (store = globalThis.localStorage) => {
+    try {
+      const v = JSON.parse(store.getItem(KEY_MSGS));
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+  var saveMsgs = (msgs, store = globalThis.localStorage) => {
+    const lista = msgs.slice(0, MAX_MSGS);
+    try {
+      store.setItem(KEY_MSGS, JSON.stringify(lista));
+      return true;
+    } catch {
+      try {
+        store.setItem(KEY_MSGS, JSON.stringify(lista.map((m) => ({ ...m, shots: void 0 }))));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+  var newPending = (texto, shots, now = Date.now()) => ({ id: "", local: "l" + now.toString(36), texto: String(texto).trim(), shots, at: now, estado: "pendiente", respuesta: "" });
+  var sendMsg = async ({ texto, shots, url, viewport, llave = "", f = globalThis.fetch }) => {
+    if (!canSend(texto, shots)) return { ok: false, error: "Escribe algo o agrega una foto." };
+    let r;
+    try {
+      const res = await f(ORQ_COLECTOR + "/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reportBody({ texto, shots, url, viewport })) });
+      r = await res.json();
+      if (!res.ok || !r.ok) return { ok: false, error: r.error || `El colector respondió ${res.status}.` };
+    } catch {
+      return { ok: false, error: "No hay conexión con la orquesta. Queda guardado para reintentar." };
+    }
+    let ligado = false;
+    if (llave) {
+      try {
+        const res = await f(ORQ_COLECTOR + "/orquesta", { method: "POST", headers: { "Content-Type": "application/json", "X-TT-Key": llave }, body: JSON.stringify({ dir: r.dir, code: ORQ_FILA }) });
+        const j = await res.json();
+        ligado = !!(res.ok && j.ok);
+      } catch {
+      }
+    }
+    return { ok: true, id: r.dir, ligado };
+  };
+  var fetchReports = async (f = globalThis.fetch) => {
+    try {
+      const res = await f(ORQ_COLECTOR + "/reports?project=" + ORQ_PROYECTO);
+      if (!res.ok) return null;
+      const j = await res.json();
+      return Array.isArray(j.reports) ? j.reports : null;
+    } catch {
+      return null;
+    }
+  };
+  var shrinkDims = (w, h, max = 1280) => {
+    const k = Math.min(1, max / Math.max(w, h));
+    return [Math.round(w * k), Math.round(h * k)];
+  };
+
   // src/rendimientos.js
   var DAY = 864e5;
   var toDate = (iso) => /* @__PURE__ */ new Date(iso + "T12:00:00");
@@ -182,11 +282,12 @@ ${body}`;
       More: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("circle", { cx: "5", cy: "12", r: "1.2" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "1.2" }), /* @__PURE__ */ React.createElement("circle", { cx: "19", cy: "12", r: "1.2" })),
       Sliders: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "7", x2: "20", y2: "7" }), /* @__PURE__ */ React.createElement("line", { x1: "4", y1: "17", x2: "20", y2: "17" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "2.2", fill: "currentColor" }), /* @__PURE__ */ React.createElement("circle", { cx: "15", cy: "17", r: "2.2", fill: "currentColor" })),
       Receipt: /* @__PURE__ */ React.createElement("path", { d: "M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2z M9 7h6 M9 11h6 M9 15h4" }),
+      Send: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("line", { x1: "22", y1: "2", x2: "11", y2: "13" }), /* @__PURE__ */ React.createElement("polygon", { points: "22 2 15 22 11 13 2 9 22 2" })),
       Share: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" }), /* @__PURE__ */ React.createElement("polyline", { points: "16 6 12 2 8 6" }), /* @__PURE__ */ React.createElement("line", { x1: "12", y1: "2", x2: "12", y2: "15" }))
     };
     return /* @__PURE__ */ React.createElement("svg", { className, width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, i[name]);
   };
-  var APP_VERSION = "28";
+  var APP_VERSION = "29";
   var Sheet = ({ title, onClose, footer, children, z = 50, testid, noX = false }) => /* @__PURE__ */ React.createElement("div", { className: "ms-overlay", style: { zIndex: z }, onClick: (e) => {
     if (e.target === e.currentTarget && onClose) onClose();
   } }, /* @__PURE__ */ React.createElement("div", { className: "ms-sheet", role: "dialog", "aria-modal": "true", "aria-label": typeof title === "string" ? title : void 0, "data-testid": testid }, (title || onClose) && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-head" }, /* @__PURE__ */ React.createElement("h2", { className: "serif ms-sheet-title min-w-0" }, title), onClose && !noX && /* @__PURE__ */ React.createElement("button", { onClick: onClose, "aria-label": "Cerrar", className: "ms-icon-btn", style: { color: "var(--ink-2)" } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 22 }))), children ? /* @__PURE__ */ React.createElement("div", { className: `ms-sheet-body ${footer ? "" : "no-foot"}`, "data-testid": "sheet-body" }, children) : null, footer && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-foot" }, footer)));
@@ -211,6 +312,22 @@ ${body}`;
     const [claudeKey, setClaudeKey] = useState(() => localStorage.getItem("cl_key") || "");
     const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem("oa_key") || "");
     const [tab, setTab] = useState("shop");
+    const [orqOn] = useState(() => {
+      try {
+        if (new URLSearchParams(location.search).get("orq") === "1") localStorage.setItem("orq_on", "1");
+        return localStorage.getItem("orq_on") === "1";
+      } catch {
+        return false;
+      }
+    });
+    const [orqLlave, setOrqLlave] = useState(() => localStorage.getItem("orq_key") || "");
+    const [orqMsgs, setOrqMsgs] = useState(() => loadMsgs());
+    const [orqTexto, setOrqTexto] = useState("");
+    const [orqShots, setOrqShots] = useState([]);
+    const [orqBusy, setOrqBusy] = useState(false);
+    const [orqMsg, setOrqMsg] = useState("");
+    const [orqListening, setOrqListening] = useState(false);
+    const orqRecRef = useRef(null);
     const [items, setItems] = useState(() => {
       try {
         return JSON.parse(localStorage.getItem("data_v4")) || [];
@@ -399,6 +516,10 @@ ${body}`;
     useEffect(() => {
       localStorage.setItem("gem_key", key);
     }, [key]);
+    useEffect(() => {
+      if (orqLlave) localStorage.setItem("orq_key", orqLlave);
+      else localStorage.removeItem("orq_key");
+    }, [orqLlave]);
     useEffect(() => {
       localStorage.setItem("ds_key", dsKey);
     }, [dsKey]);
@@ -1627,7 +1748,106 @@ Reglas:
         setIsListening(false);
       } else startListening();
     };
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items };
+    const orqSinVer = orqMsgs.filter((m) => m.estado === "atendido" && !m.visto).length;
+    const orqGuardar = (fn) => setOrqMsgs((prev) => {
+      const next = fn(prev);
+      saveMsgs(next);
+      return next;
+    });
+    const orqRefrescar = async () => {
+      const reps = await fetchReports();
+      if (reps) orqGuardar((prev) => mergeEstados(prev, reps));
+    };
+    const orqEnviar = async (m) => {
+      const r = await sendMsg({ texto: m.texto, shots: m.shots || [], url: location.href.split("?")[0], viewport: `${window.innerWidth}x${window.innerHeight}`, llave: orqLlave });
+      if (!r.ok) return r;
+      orqGuardar((prev) => prev.map((x) => x.local === m.local ? { ...x, id: r.id, estado: "enviado", shots: void 0, ligado: r.ligado } : x));
+      return r;
+    };
+    const orqMandar = async () => {
+      if (orqBusy || !canSend(orqTexto, orqShots)) return;
+      if (orqListening && orqRecRef.current) orqRecRef.current.stop();
+      setOrqBusy(true);
+      setOrqMsg("");
+      const m = newPending(orqTexto, orqShots);
+      orqGuardar((prev) => [m, ...prev]);
+      const r = await orqEnviar(m);
+      setOrqBusy(false);
+      if (r.ok) {
+        setOrqTexto("");
+        setOrqShots([]);
+        setOrqMsg(r.ligado ? "Mandado. Ya está ligado a la fila de Mi Súper." : "Mandado. La orquesta lo recoge en su próxima pasada.");
+      } else {
+        setOrqTexto("");
+        setOrqShots([]);
+        setOrqMsg(r.error);
+      }
+    };
+    const orqReintentar = async (m) => {
+      setOrqBusy(true);
+      setOrqMsg("");
+      const r = await orqEnviar(m);
+      setOrqBusy(false);
+      setOrqMsg(r.ok ? "Mandado." : r.error);
+    };
+    const orqQuitar = (m) => orqGuardar((prev) => prev.filter((x) => x !== m));
+    const orqFotos = async (files) => {
+      for (const f of Array.from(files).slice(0, ORQ_MAX_FOTOS)) {
+        try {
+          const bmp = await createImageBitmap(f);
+          const [w, h] = shrinkDims(bmp.width, bmp.height);
+          const cv = document.createElement("canvas");
+          cv.width = w;
+          cv.height = h;
+          cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+          const data = cv.toDataURL("image/jpeg", 0.72).split(",")[1];
+          setOrqShots((prev) => prev.length >= ORQ_MAX_FOTOS ? prev : [...prev, { data, mime: "image/jpeg" }]);
+        } catch {
+          setOrqMsg("No pude leer esa imagen.");
+        }
+      }
+    };
+    const orqHablar = () => {
+      if (orqListening && orqRecRef.current) {
+        orqRecRef.current.stop();
+        return;
+      }
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        setOrqMsg("Este navegador no dicta. Usa el micrófono del teclado.");
+        return;
+      }
+      const rec = new SR();
+      rec.lang = "es-MX";
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.onstart = () => setOrqListening(true);
+      rec.onend = () => setOrqListening(false);
+      rec.onerror = (e) => {
+        setOrqListening(false);
+        if (e.error !== "no-speech") setOrqMsg("El dictado falló: " + e.error);
+      };
+      rec.onresult = (e) => {
+        let fin = "";
+        for (let i = e.resultIndex; i < e.results.length; ++i) if (e.results[i].isFinal) fin += e.results[i][0].transcript + " ";
+        if (fin) setOrqTexto((t) => (t + " " + fin).trim().slice(0, ORQ_MAX_TEXTO));
+      };
+      orqRecRef.current = rec;
+      rec.start();
+    };
+    useEffect(() => {
+      if (!orqOn) return;
+      const esperando = orqMsgs.some((m) => m.estado === "enviado");
+      if (modal !== "orquesta" && !esperando) return;
+      orqRefrescar();
+      if (modal !== "orquesta") return;
+      const t = setInterval(orqRefrescar, 2e4);
+      return () => clearInterval(t);
+    }, [orqOn, modal]);
+    useEffect(() => {
+      if (modal === "orquesta" && orqSinVer) orqGuardar((prev) => prev.map((m) => m.estado === "atendido" ? { ...m, visto: true } : m));
+    }, [modal, orqSinVer]);
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items, setOrqMsgs };
     const modalFooter = () => {
       if (modal === "edit" && editItem) return /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "ms-btn ms-btn-primary" }, "Guardar cambios");
       if (modal === "view" && viewItem) return /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
@@ -1640,6 +1860,7 @@ Reglas:
       }, className: "ms-btn ms-btn-primary" }, "Editar"));
       if (modal === "more" || modal === "filters") return /* @__PURE__ */ React.createElement("button", { onClick: () => setModal(null), className: "ms-btn ms-btn-secondary" }, "Listo");
       if (modal === "settings") return /* @__PURE__ */ React.createElement("button", { onClick: () => setModal(null), className: "ms-btn ms-btn-primary" }, "Guardar");
+      if (modal === "orquesta") return /* @__PURE__ */ React.createElement("button", { onClick: orqMandar, disabled: orqBusy || !canSend(orqTexto, orqShots), className: "ms-btn ms-btn-primary", "data-testid": "orq-send" }, orqBusy ? "Mandando…" : "Mandar a la orquesta");
       if (modal === "dictate") return /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: toggleListening, className: `ms-btn ms-btn-secondary ${isListening ? "mic-active" : ""}` }, isListening ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Icon, { name: "Stop", size: 18 }), " Parar") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Icon, { name: "Mic", size: 18 }), " Hablar")), /* @__PURE__ */ React.createElement("button", { onClick: handleDictation, disabled: loading || !prompt.trim(), className: "ms-btn ms-btn-primary" }, loading ? "Pensando…" : "Procesar"));
       return null;
     };
@@ -1739,7 +1960,7 @@ Reglas:
           setResult(null);
         },
         noX: modal === "more" || modal === "filters",
-        title: { settings: "Ajustes", edit: "Editar", dictate: "Dictado", chef: "Chef", ticket: "Ticket", suggest: "Sugerencias", more: "Más", filters: "Ver y ordenar", view: viewItem ? viewItem.name : "" }[modal],
+        title: { orquesta: "Escribirle a la orquesta", settings: "Ajustes", edit: "Editar", dictate: "Dictado", chef: "Chef", ticket: "Ticket", suggest: "Sugerencias", more: "Más", filters: "Ver y ordenar", view: viewItem ? viewItem.name : "" }[modal],
         footer: modalFooter()
       },
       modal === "edit" && editItem && (() => {
@@ -1763,7 +1984,10 @@ Reglas:
         setModal("chef");
         setResult(null);
         handleChef();
-      } }, /* @__PURE__ */ React.createElement(Icon, { name: "Chef" }), " ¿Qué cocino con lo de casa?"), /* @__PURE__ */ React.createElement("button", { className: "ms-menu-item", onClick: () => setModal("suggest") }, /* @__PURE__ */ React.createElement(Icon, { name: "Sparkles" }), " Sugerencias"), tab === "shop" && list.length > 0 && /* @__PURE__ */ React.createElement("button", { className: "ms-menu-item", onClick: () => {
+      } }, /* @__PURE__ */ React.createElement(Icon, { name: "Chef" }), " ¿Qué cocino con lo de casa?"), /* @__PURE__ */ React.createElement("button", { className: "ms-menu-item", onClick: () => setModal("suggest") }, /* @__PURE__ */ React.createElement(Icon, { name: "Sparkles" }), " Sugerencias"), orqOn && /* @__PURE__ */ React.createElement("button", { className: "ms-menu-item", "data-testid": "orq-menu", onClick: () => {
+        setOrqMsg("");
+        setModal("orquesta");
+      } }, /* @__PURE__ */ React.createElement(Icon, { name: "Send" }), " Escribirle a la orquesta", orqSinVer > 0 && /* @__PURE__ */ React.createElement("span", { className: "ms-badge", "aria-label": `${orqSinVer} respuesta${orqSinVer > 1 ? "s" : ""} nueva${orqSinVer > 1 ? "s" : ""}` }, orqSinVer)), tab === "shop" && list.length > 0 && /* @__PURE__ */ React.createElement("button", { className: "ms-menu-item", onClick: () => {
         setModal(null);
         shareList();
       } }, /* @__PURE__ */ React.createElement(Icon, { name: "Share" }), " Compartir lista"), /* @__PURE__ */ React.createElement("div", { className: "ms-menu-item ms-menu-split" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
@@ -1774,6 +1998,10 @@ Reglas:
         handleImportCSV(e);
       }, className: "hidden" }))), /* @__PURE__ */ React.createElement("button", { className: "ms-menu-item", onClick: () => setModal("settings") }, /* @__PURE__ */ React.createElement(Icon, { name: "Settings" }), " Ajustes"), /* @__PURE__ */ React.createElement("button", { className: "ms-menu-foot", onClick: hardRefresh }, "Versión ", APP_VERSION, " · refrescar")),
       modal === "filters" && /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, tab === "shop" && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("p", { className: "ms-sh" }, "Tienda"), /* @__PURE__ */ React.createElement("div", { className: "ms-opts" }, ["Todos", ...savedTags.filter((x) => x !== "General")].map((t) => opt(filter === t, () => setFilter(t), t)))), tab === "inv" && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("p", { className: "ms-sh" }, "Mostrar"), /* @__PURE__ */ React.createElement("div", { className: "ms-opts" }, [["Todos", "Todo"], ["MariKondo", "Mari Kondo"], ["Agotados", "Agotados"], ...categories.map((c) => [c, c])].map(([v, l]) => opt(invFilter === v, () => setInvFilter(v), l)))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("p", { className: "ms-sh" }, "Ordenar"), /* @__PURE__ */ React.createElement("div", { className: "ms-opts" }, [["name", "A-Z"], ["recent", "Recientes"], ["expiry", "Caducidad"], ["price", "Precio"]].map(([v, l]) => opt(sortBy === v, () => setSortBy(v), l)))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("p", { className: "ms-sh" }, "Agrupar"), /* @__PURE__ */ React.createElement("div", { className: "ms-opts" }, opt(!groupByPlace, () => setGroupByPlace(false), "No"), opt(groupByPlace, () => setGroupByPlace(true), tab === "shop" ? "Por categoría" : "Por lugar")))),
+      modal === "orquesta" && /* @__PURE__ */ React.createElement("div", { className: "space-y-4", "data-testid": "orq-body" }, /* @__PURE__ */ React.createElement("label", { className: "ms-field" }, /* @__PURE__ */ React.createElement("span", { className: "ms-label" }, "Cuéntale qué necesitas, qué falla o qué quieres cambiar."), /* @__PURE__ */ React.createElement("textarea", { value: orqTexto, onChange: (e) => setOrqTexto(e.target.value.slice(0, ORQ_MAX_TEXTO)), className: "ms-input", rows: "4", "data-testid": "orq-text", placeholder: "Por ejemplo: el botón de compartir no funciona." })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: orqHablar, className: `ms-btn ms-btn-secondary ${orqListening ? "mic-active" : ""}` }, orqListening ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Icon, { name: "Stop", size: 18 }), " Parar") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Icon, { name: "Mic", size: 18 }), " Hablar")), /* @__PURE__ */ React.createElement("label", { className: `ms-btn ms-btn-secondary cursor-pointer ${orqShots.length >= ORQ_MAX_FOTOS ? "opacity-50" : ""}` }, /* @__PURE__ */ React.createElement(Icon, { name: "Camera", size: 18 }), " Foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, className: "hidden", "data-testid": "orq-file", disabled: orqShots.length >= ORQ_MAX_FOTOS, onChange: (e) => {
+        if (e.target.files?.length) orqFotos(e.target.files);
+        e.target.value = "";
+      } }))), orqShots.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2" }, orqShots.map((sh, i) => /* @__PURE__ */ React.createElement("figure", { key: i, className: "relative" }, /* @__PURE__ */ React.createElement("img", { src: `data:${sh.mime};base64,${sh.data}`, alt: `Foto ${i + 1}`, className: "w-full aspect-square object-cover", style: { borderRadius: 6, background: "var(--paper-2)" } }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setOrqShots((prev) => prev.filter((_, k) => k !== i)), "aria-label": "Quitar foto", className: "absolute top-0 right-0 ms-icon-btn", style: { width: 36, height: 36, color: "#fff", filter: "drop-shadow(0 0 2px rgba(0,0,0,.7))" } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 18 }))))), orqMsg && /* @__PURE__ */ React.createElement("p", { className: "ms-hint", role: "status", "data-testid": "orq-status", style: { color: "var(--ink)" } }, orqMsg), /* @__PURE__ */ React.createElement("section", { className: "ms-section" }, /* @__PURE__ */ React.createElement("p", { className: "ms-h" }, "Lo que has mandado · ", orqMsgs.length), orqMsgs.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "ms-hint" }, "Todavía nada. Aquí verás la respuesta."), /* @__PURE__ */ React.createElement("ul", { className: "space-y-3", "data-testid": "orq-list" }, orqMsgs.map((m, i) => /* @__PURE__ */ React.createElement("li", { key: m.id || m.local || i, className: "orq-item", "data-estado": m.estado }, /* @__PURE__ */ React.createElement("p", { className: "orq-q" }, m.texto || "(solo foto)"), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, /* @__PURE__ */ React.createElement("span", { className: "orq-st" }, ESTADO_TXT[m.estado] || m.estado), " · ", new Date(m.at).toLocaleString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })), m.estado === "atendido" && /* @__PURE__ */ React.createElement("p", { className: "orq-a", "data-testid": "orq-reply" }, m.respuesta || "La orquesta lo cerró. Abre Faro para ver el detalle."), m.estado === "pendiente" && /* @__PURE__ */ React.createElement("div", { className: "flex gap-5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => orqReintentar(m), disabled: orqBusy, className: "ms-link-strong", style: { paddingLeft: 0 } }, "Reintentar"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => orqQuitar(m), className: "ms-link" }, "Quitar"))))))),
       modal === "settings" && /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, cloudConfigured && cloudMode && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("p", { className: "ms-h" }, "Grupo"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 16 } }, groupName, " · ", /* @__PURE__ */ React.createElement("span", { style: { color: "var(--ink-3)" } }, members.length || 1, " ", members.length === 1 ? "miembro" : "miembros")), /* @__PURE__ */ React.createElement("p", { className: "ms-hint" }, "Código ", /* @__PURE__ */ React.createElement("strong", { style: { color: "var(--ink)", letterSpacing: ".08em" } }, groupCode)), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mt-3" }, /* @__PURE__ */ React.createElement("button", { onClick: async () => {
         const text = `Únete a "${groupName}" en Mi Súper con el código ${groupCode}
 ${location.origin}${location.pathname}`;
@@ -1814,7 +2042,7 @@ ${location.origin}${location.pathname}`;
         setObNick("");
         setOnboarded(false);
         setModal(null);
-      }, className: "ms-btn ms-btn-secondary" }, "Unirme"))), /* @__PURE__ */ React.createElement("section", { className: cloudConfigured ? "ms-section" : "" }, /* @__PURE__ */ React.createElement("p", { className: "ms-h" }, "Inteligencia artificial"), /* @__PURE__ */ React.createElement("p", { className: "ms-hint", style: { marginTop: 0 } }, "Las llaves se guardan en este teléfono y solo se mandan al proveedor cuando usas voz, tickets o chef. La app usa la mejor disponible para cada tarea.")), [
+      }, className: "ms-btn ms-btn-secondary" }, "Unirme"))), /* @__PURE__ */ React.createElement("section", { className: cloudConfigured ? "ms-section" : "" }, /* @__PURE__ */ React.createElement("p", { className: "ms-h" }, "Inteligencia artificial"), /* @__PURE__ */ React.createElement("p", { className: "ms-hint", style: { marginTop: 0 } }, "Las llaves se guardan en este teléfono y solo se mandan al proveedor cuando usas voz, tickets o chef. La app usa la mejor disponible para cada tarea.")), orqOn && /* @__PURE__ */ React.createElement("section", { className: "ms-section" }, /* @__PURE__ */ React.createElement("p", { className: "ms-h" }, "Orquesta"), /* @__PURE__ */ React.createElement("label", { className: "ms-field" }, /* @__PURE__ */ React.createElement("span", { className: "ms-label", style: { color: "var(--ink)", fontSize: 15 } }, "Llave de TickTrack (opcional)"), /* @__PURE__ */ React.createElement("input", { value: orqLlave, onChange: (e) => setOrqLlave(e.target.value.trim()), className: "ms-input", style: { fontSize: 14 }, placeholder: "Sin llave el mensaje igual llega", autoCapitalize: "off", autoCorrect: "off", spellCheck: "false", "data-testid": "orq-llave" }), /* @__PURE__ */ React.createElement("span", { className: "ms-hint", style: { display: "block" } }, "Con la llave, cada mensaje queda ligado a la fila de Mi Súper en Faro. Se guarda solo en este teléfono."))), [
         ["Google Gemini", "Gratis.", "https://aistudio.google.com/apikey", "aistudio.google.com", key, setKey, "AIza…"],
         ["Anthropic Claude", "De pago, modelo Haiku.", "https://console.anthropic.com/settings/keys", "console.anthropic.com", claudeKey, setClaudeKey, "sk-ant-…"],
         ["OpenAI", "De pago, gpt-4o-mini.", "https://platform.openai.com/api-keys", "platform.openai.com", openaiKey, setOpenaiKey, "sk-…"],

@@ -1,4 +1,4 @@
-const CACHE = 'mi-super-v28';
+const CACHE = 'mi-super-v29';
 const PRECACHE = [
   './',
   './index.html',
@@ -48,6 +48,8 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname === 'api.anthropic.com') return;
   if (url.hostname === 'api.openai.com') return;
   if (url.hostname.endsWith('.supabase.co')) return;
+  // El colector de la orquesta (v29): el estado de un mensaje debe ser el de ahora, nunca el de la caché.
+  if (url.hostname === 'anvil.tail8be012.ts.net') return;
 
   event.respondWith(
     caches.match(req).then((cached) => {

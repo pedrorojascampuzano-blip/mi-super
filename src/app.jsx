@@ -1,4 +1,5 @@
 import { listShareText } from './lib.js';
+import { ORQ_MAX_FOTOS, ORQ_MAX_TEXTO, ESTADO_TXT, canSend, sendMsg, fetchReports, mergeEstados, loadMsgs, saveMsgs, newPending, shrinkDims } from './orquesta.js';
 import { appendPurchases, purchaseEntry, computeRendimientos, lastInfo, fmtDay, fmtMonth, fmtMoney, fmtLeft } from './rendimientos.js';
 
 const { useState, useEffect, useRef } = React;
@@ -34,6 +35,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
         More: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>,
         Sliders: <><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="17" x2="20" y2="17" /><circle cx="9" cy="7" r="2.2" fill="currentColor" /><circle cx="15" cy="17" r="2.2" fill="currentColor" /></>,
         Receipt: <path d="M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2z M9 7h6 M9 11h6 M9 15h4" />,
+        Send: <><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></>,
         Share: <><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></>
     };
     return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{i[name]}</svg>;
@@ -43,7 +45,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '28';
+const APP_VERSION = '29';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -83,6 +85,16 @@ const SuperApp = () => {
     const [claudeKey, setClaudeKey] = useState(()=>localStorage.getItem('cl_key')||'');
     const [openaiKey, setOpenaiKey] = useState(()=>localStorage.getItem('oa_key')||'');
     const [tab, setTab] = useState('shop'); 
+    // Escribirle a la orquesta (v29). Se activa una vez en este teléfono con ?orq=1; no aparece para los demás del grupo.
+    const [orqOn] = useState(() => { try { if (new URLSearchParams(location.search).get('orq') === '1') localStorage.setItem('orq_on', '1'); return localStorage.getItem('orq_on') === '1'; } catch { return false; } });
+    const [orqLlave, setOrqLlave] = useState(() => localStorage.getItem('orq_key') || '');
+    const [orqMsgs, setOrqMsgs] = useState(() => loadMsgs());
+    const [orqTexto, setOrqTexto] = useState('');
+    const [orqShots, setOrqShots] = useState([]);
+    const [orqBusy, setOrqBusy] = useState(false);
+    const [orqMsg, setOrqMsg] = useState('');
+    const [orqListening, setOrqListening] = useState(false);
+    const orqRecRef = useRef(null);
     const [items, setItems] = useState(() => { try { return JSON.parse(localStorage.getItem('data_v4')) || []; } catch { return []; } });
     const [savedTags, setSavedTags] = useState(() => { try { return JSON.parse(localStorage.getItem('saved_tags')) || ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']; } catch { return ['General', 'Costco', 'Super', 'Mercado', 'Oxxo']; } });
     const [name, setName] = useState('');
@@ -243,6 +255,7 @@ const SuperApp = () => {
     const itemsRef = useRef(items); itemsRef.current = items;
     useEffect(() => { localStorage.setItem('saved_tags', JSON.stringify(savedTags)); }, [savedTags]);
     useEffect(() => { localStorage.setItem('gem_key', key); }, [key]);
+    useEffect(() => { if (orqLlave) localStorage.setItem('orq_key', orqLlave); else localStorage.removeItem('orq_key'); }, [orqLlave]);
     useEffect(() => { localStorage.setItem('ds_key', dsKey); }, [dsKey]);
     useEffect(() => { localStorage.setItem('cl_key', claudeKey); }, [claudeKey]);
     useEffect(() => { localStorage.setItem('oa_key', openaiKey); }, [openaiKey]);
@@ -1298,8 +1311,81 @@ Reglas:
     };
     const toggleListening = () => { if(isListening && recognitionRef.current) { recognitionRef.current.stop(); setIsListening(false); } else startListening(); };
 
+    // --- ESCRIBIRLE A LA ORQUESTA (v29) ---
+    const orqSinVer = orqMsgs.filter(m => m.estado === 'atendido' && !m.visto).length;
+    const orqGuardar = (fn) => setOrqMsgs(prev => { const next = fn(prev); saveMsgs(next); return next; });
+    const orqRefrescar = async () => {
+        const reps = await fetchReports();
+        if (reps) orqGuardar(prev => mergeEstados(prev, reps));
+    };
+    const orqEnviar = async (m) => {
+        const r = await sendMsg({ texto: m.texto, shots: m.shots || [], url: location.href.split('?')[0], viewport: `${window.innerWidth}x${window.innerHeight}`, llave: orqLlave });
+        if (!r.ok) return r;
+        orqGuardar(prev => prev.map(x => (x.local === m.local ? { ...x, id: r.id, estado: 'enviado', shots: undefined, ligado: r.ligado } : x)));
+        return r;
+    };
+    const orqMandar = async () => {
+        if (orqBusy || !canSend(orqTexto, orqShots)) return;
+        if (orqListening && orqRecRef.current) orqRecRef.current.stop();
+        setOrqBusy(true); setOrqMsg('');
+        const m = newPending(orqTexto, orqShots);
+        orqGuardar(prev => [m, ...prev]);
+        const r = await orqEnviar(m);
+        setOrqBusy(false);
+        if (r.ok) { setOrqTexto(''); setOrqShots([]); setOrqMsg(r.ligado ? 'Mandado. Ya está ligado a la fila de Mi Súper.' : 'Mandado. La orquesta lo recoge en su próxima pasada.'); }
+        else { setOrqTexto(''); setOrqShots([]); setOrqMsg(r.error); }
+    };
+    const orqReintentar = async (m) => {
+        setOrqBusy(true); setOrqMsg('');
+        const r = await orqEnviar(m);
+        setOrqBusy(false);
+        setOrqMsg(r.ok ? 'Mandado.' : r.error);
+    };
+    const orqQuitar = (m) => orqGuardar(prev => prev.filter(x => x !== m));
+    const orqFotos = async (files) => {
+        for (const f of Array.from(files).slice(0, ORQ_MAX_FOTOS)) {
+            try {
+                const bmp = await createImageBitmap(f);
+                const [w, h] = shrinkDims(bmp.width, bmp.height);
+                const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+                cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+                const data = cv.toDataURL('image/jpeg', 0.72).split(',')[1];
+                setOrqShots(prev => prev.length >= ORQ_MAX_FOTOS ? prev : [...prev, { data, mime: 'image/jpeg' }]);
+            } catch { setOrqMsg('No pude leer esa imagen.'); }
+        }
+    };
+    const orqHablar = () => {
+        if (orqListening && orqRecRef.current) { orqRecRef.current.stop(); return; }
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) { setOrqMsg('Este navegador no dicta. Usa el micrófono del teclado.'); return; }
+        const rec = new SR();
+        rec.lang = 'es-MX'; rec.continuous = true; rec.interimResults = false;
+        rec.onstart = () => setOrqListening(true);
+        rec.onend = () => setOrqListening(false);
+        rec.onerror = (e) => { setOrqListening(false); if (e.error !== 'no-speech') setOrqMsg('El dictado falló: ' + e.error); };
+        rec.onresult = (e) => {
+            let fin = '';
+            for (let i = e.resultIndex; i < e.results.length; ++i) if (e.results[i].isFinal) fin += e.results[i][0].transcript + ' ';
+            if (fin) setOrqTexto(t => (t + ' ' + fin).trim().slice(0, ORQ_MAX_TEXTO));
+        };
+        orqRecRef.current = rec; rec.start();
+    };
+    // Al abrir la hoja se pide el estado y se marca lo visto. Con algo esperando, se vuelve a pedir cada 20 s.
+    useEffect(() => {
+        if (!orqOn) return;
+        const esperando = orqMsgs.some(m => m.estado === 'enviado');
+        if (modal !== 'orquesta' && !esperando) return;
+        orqRefrescar();
+        if (modal !== 'orquesta') return;
+        const t = setInterval(orqRefrescar, 20000);
+        return () => clearInterval(t);
+    }, [orqOn, modal]);
+    useEffect(() => {
+        if (modal === 'orquesta' && orqSinVer) orqGuardar(prev => prev.map(m => (m.estado === 'atendido' ? { ...m, visto: true } : m)));
+    }, [modal, orqSinVer]);
+
     // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
-    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items };
+    if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items, setOrqMsgs };
 
     const modalFooter = () => {
         if (modal === 'edit' && editItem) return <button onClick={saveEdit} className="ms-btn ms-btn-primary">Guardar cambios</button>;
@@ -1311,6 +1397,7 @@ Reglas:
         );
         if (modal === 'more' || modal === 'filters') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-secondary">Listo</button>;
         if (modal === 'settings') return <button onClick={()=>setModal(null)} className="ms-btn ms-btn-primary">Guardar</button>;
+        if (modal === 'orquesta') return <button onClick={orqMandar} disabled={orqBusy || !canSend(orqTexto, orqShots)} className="ms-btn ms-btn-primary" data-testid="orq-send">{orqBusy ? 'Mandando…' : 'Mandar a la orquesta'}</button>;
         if (modal === 'dictate') return (
             <div className="grid grid-cols-2 gap-2">
                 <button onClick={toggleListening} className={`ms-btn ms-btn-secondary ${isListening ? 'mic-active' : ''}`}>{isListening ? <><Icon name="Stop" size={18}/> Parar</> : <><Icon name="Mic" size={18}/> Hablar</>}</button>
@@ -1645,7 +1732,7 @@ Reglas:
 
             {modal && !confirmData.isOpen && (
                 <Sheet testid="sheet" onClose={()=>{setModal(null); setEditItem(null); setResult(null)}} noX={modal==='more' || modal==='filters'}
-                    title={{settings:'Ajustes', edit:'Editar', dictate:'Dictado', chef:'Chef', ticket:'Ticket', suggest:'Sugerencias', more:'Más', filters:'Ver y ordenar', view: viewItem ? viewItem.name : ''}[modal]}
+                    title={{orquesta:'Escribirle a la orquesta', settings:'Ajustes', edit:'Editar', dictate:'Dictado', chef:'Chef', ticket:'Ticket', suggest:'Sugerencias', more:'Más', filters:'Ver y ordenar', view: viewItem ? viewItem.name : ''}[modal]}
                     footer={modalFooter()}>
 
                         {modal === 'edit' && editItem && (() => {
@@ -1807,6 +1894,7 @@ Reglas:
                             <div className="ms-menu">
                                 <button className="ms-menu-item" onClick={()=>{ setModal('chef'); setResult(null); handleChef(); }}><Icon name="Chef"/> ¿Qué cocino con lo de casa?</button>
                                 <button className="ms-menu-item" onClick={()=>setModal('suggest')}><Icon name="Sparkles"/> Sugerencias</button>
+                                {orqOn && <button className="ms-menu-item" data-testid="orq-menu" onClick={()=>{ setOrqMsg(''); setModal('orquesta'); }}><Icon name="Send"/> Escribirle a la orquesta{orqSinVer > 0 && <span className="ms-badge" aria-label={`${orqSinVer} respuesta${orqSinVer>1?'s':''} nueva${orqSinVer>1?'s':''}`}>{orqSinVer}</span>}</button>}
                                 {tab==='shop' && list.length > 0 && <button className="ms-menu-item" onClick={()=>{ setModal(null); shareList(); }}><Icon name="Share"/> Compartir lista</button>}
                                 <div className="ms-menu-item ms-menu-split">
                                     <button onClick={()=>{ setModal(null); handleExportCSV(); }}><Icon name="Download"/> Exportar CSV</button>
@@ -1823,6 +1911,51 @@ Reglas:
                                 {tab==='inv' && <section><p className="ms-sh">Mostrar</p><div className="ms-opts">{[['Todos','Todo'],['MariKondo','Mari Kondo'],['Agotados','Agotados'], ...categories.map(c=>[c,c])].map(([v,l]) => opt(invFilter===v, ()=>setInvFilter(v), l))}</div></section>}
                                 <section><p className="ms-sh">Ordenar</p><div className="ms-opts">{[['name','A-Z'],['recent','Recientes'],['expiry','Caducidad'],['price','Precio']].map(([v,l]) => opt(sortBy===v, ()=>setSortBy(v), l))}</div></section>
                                 <section><p className="ms-sh">Agrupar</p><div className="ms-opts">{opt(!groupByPlace, ()=>setGroupByPlace(false), 'No')}{opt(groupByPlace, ()=>setGroupByPlace(true), tab==='shop' ? 'Por categoría' : 'Por lugar')}</div></section>
+                            </div>
+                        )}
+
+                        {modal === 'orquesta' && (
+                            <div className="space-y-4" data-testid="orq-body">
+                                <label className="ms-field">
+                                    <span className="ms-label">Cuéntale qué necesitas, qué falla o qué quieres cambiar.</span>
+                                    <textarea value={orqTexto} onChange={e=>setOrqTexto(e.target.value.slice(0, ORQ_MAX_TEXTO))} className="ms-input" rows="4" data-testid="orq-text" placeholder="Por ejemplo: el botón de compartir no funciona."/>
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button type="button" onClick={orqHablar} className={`ms-btn ms-btn-secondary ${orqListening ? 'mic-active' : ''}`}>{orqListening ? <><Icon name="Stop" size={18}/> Parar</> : <><Icon name="Mic" size={18}/> Hablar</>}</button>
+                                    <label className={`ms-btn ms-btn-secondary cursor-pointer ${orqShots.length >= ORQ_MAX_FOTOS ? 'opacity-50' : ''}`}><Icon name="Camera" size={18}/> Foto
+                                        <input type="file" accept="image/*" multiple className="hidden" data-testid="orq-file" disabled={orqShots.length >= ORQ_MAX_FOTOS} onChange={e => { if (e.target.files?.length) orqFotos(e.target.files); e.target.value=''; }}/>
+                                    </label>
+                                </div>
+                                {orqShots.length > 0 && (
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {orqShots.map((sh, i) => (
+                                            <figure key={i} className="relative">
+                                                <img src={`data:${sh.mime};base64,${sh.data}`} alt={`Foto ${i+1}`} className="w-full aspect-square object-cover" style={{borderRadius:6, background:'var(--paper-2)'}}/>
+                                                <button type="button" onClick={() => setOrqShots(prev => prev.filter((_, k) => k !== i))} aria-label="Quitar foto" className="absolute top-0 right-0 ms-icon-btn" style={{width:36,height:36,color:'#fff',filter:'drop-shadow(0 0 2px rgba(0,0,0,.7))'}}><Icon name="X" size={18}/></button>
+                                            </figure>
+                                        ))}
+                                    </div>
+                                )}
+                                {orqMsg && <p className="ms-hint" role="status" data-testid="orq-status" style={{color:'var(--ink)'}}>{orqMsg}</p>}
+                                <section className="ms-section">
+                                    <p className="ms-h">Lo que has mandado · {orqMsgs.length}</p>
+                                    {orqMsgs.length === 0 && <p className="ms-hint">Todavía nada. Aquí verás la respuesta.</p>}
+                                    <ul className="space-y-3" data-testid="orq-list">
+                                        {orqMsgs.map((m, i) => (
+                                            <li key={m.id || m.local || i} className="orq-item" data-estado={m.estado}>
+                                                <p className="orq-q">{m.texto || '(solo foto)'}</p>
+                                                <p className="ms-meta"><span className="orq-st">{ESTADO_TXT[m.estado] || m.estado}</span> · {new Date(m.at).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                                                {m.estado === 'atendido' && <p className="orq-a" data-testid="orq-reply">{m.respuesta || 'La orquesta lo cerró. Abre Faro para ver el detalle.'}</p>}
+                                                {m.estado === 'pendiente' && (
+                                                    <div className="flex gap-5">
+                                                        <button type="button" onClick={() => orqReintentar(m)} disabled={orqBusy} className="ms-link-strong" style={{paddingLeft:0}}>Reintentar</button>
+                                                        <button type="button" onClick={() => orqQuitar(m)} className="ms-link">Quitar</button>
+                                                    </div>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
                             </div>
                         )}
 
@@ -1867,6 +2000,16 @@ Reglas:
                                     <p className="ms-h">Inteligencia artificial</p>
                                     <p className="ms-hint" style={{marginTop:0}}>Las llaves se guardan en este teléfono y solo se mandan al proveedor cuando usas voz, tickets o chef. La app usa la mejor disponible para cada tarea.</p>
                                 </section>
+                                {orqOn && (
+                                    <section className="ms-section">
+                                        <p className="ms-h">Orquesta</p>
+                                        <label className="ms-field">
+                                            <span className="ms-label" style={{color:'var(--ink)', fontSize:15}}>Llave de TickTrack (opcional)</span>
+                                            <input value={orqLlave} onChange={e=>setOrqLlave(e.target.value.trim())} className="ms-input" style={{fontSize:14}} placeholder="Sin llave el mensaje igual llega" autoCapitalize="off" autoCorrect="off" spellCheck="false" data-testid="orq-llave"/>
+                                            <span className="ms-hint" style={{display:'block'}}>Con la llave, cada mensaje queda ligado a la fila de Mi Súper en Faro. Se guarda solo en este teléfono.</span>
+                                        </label>
+                                    </section>
+                                )}
                                 {[
                                     ['Google Gemini', 'Gratis.', 'https://aistudio.google.com/apikey', 'aistudio.google.com', key, setKey, 'AIza…'],
                                     ['Anthropic Claude', 'De pago, modelo Haiku.', 'https://console.anthropic.com/settings/keys', 'console.anthropic.com', claudeKey, setClaudeKey, 'sk-ant-…'],
