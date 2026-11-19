@@ -1,4 +1,5 @@
 import { listShareText } from './lib.js';
+import { ttCargar } from './ticktrack.js';
 import { ORQ_MAX_FOTOS, ORQ_MAX_TEXTO, ESTADO_TXT, canSend, sendMsg, fetchReports, mergeEstados, loadMsgs, saveMsgs, newPending, shrinkDims } from './orquesta.js';
 import { appendPurchases, purchaseEntry, computeRendimientos, lastInfo, fmtDay, fmtMonth, fmtMoney, fmtLeft } from './rendimientos.js';
 
@@ -45,7 +46,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '29';
+const APP_VERSION = '30';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -1383,6 +1384,10 @@ Reglas:
     useEffect(() => {
         if (modal === 'orquesta' && orqSinVer) orqGuardar(prev => prev.map(m => (m.estado === 'atendido' ? { ...m, visto: true } : m)));
     }, [modal, orqSinVer]);
+
+    // TickTrack (v30): el botón flotante se carga una vez en el teléfono de Pedro; se oculta mientras hay una hoja abierta.
+    useEffect(() => { if (orqOn) ttCargar(); }, [orqOn]);
+    useEffect(() => { document.body.classList.toggle('ms-sheet-open', !!(modal || addOpen)); }, [modal, addOpen]);
 
     // Solo para pruebas automatizadas (tests/): permite abrir cada vista sin depender de clases CSS.
     if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items, setOrqMsgs };

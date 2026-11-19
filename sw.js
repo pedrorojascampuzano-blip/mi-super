@@ -1,4 +1,4 @@
-const CACHE = 'mi-super-v29';
+const CACHE = 'mi-super-v30';
 const PRECACHE = [
   './',
   './index.html',
@@ -49,7 +49,16 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname === 'api.openai.com') return;
   if (url.hostname.endsWith('.supabase.co')) return;
   // El colector de la orquesta (v29): el estado de un mensaje debe ser el de ahora, nunca el de la caché.
-  if (url.hostname === 'anvil.tail8be012.ts.net') return;
+  if (url.hostname === 'anvil.tail8be012.ts.net') {
+    // Solo el script del widget de TickTrack (v30) se guarda: red primero, caché si no hay red.
+    if (url.pathname === '/ticktack/ticktack.js') {
+      event.respondWith(
+        fetch(req).then((res) => { const c = res.clone(); caches.open(CACHE).then((cache) => cache.put(req, c)); return res; })
+          .catch(() => caches.match(req).then((hit) => hit || Response.error()))
+      );
+    }
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then((cached) => {

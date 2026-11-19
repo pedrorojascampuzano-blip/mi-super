@@ -14,6 +14,45 @@
 ${body}`;
   };
 
+  // src/ticktrack.js
+  var TT_BASE = "https://anvil.tail8be012.ts.net/ticktack";
+  var TT_PROYECTO = "misuper";
+  var TT_CSS_ID = "ms-tt-pos";
+  var ttCss = () => [
+    ".tt-fab{top:calc(var(--sat, 0px) + 8px) !important;bottom:auto !important;right:12px !important;opacity:.92}",
+    "#tt-qbub{top:calc(var(--sat, 0px) + 60px) !important;bottom:auto !important;right:12px !important;flex-wrap:wrap !important}",
+    "#tt-qdock{top:calc(var(--sat, 0px) + 8px) !important;bottom:auto !important;right:64px !important;left:12px !important;width:auto !important;max-height:none !important}",
+    ".tt-panel{top:calc(var(--sat, 0px) + 60px) !important;bottom:calc(var(--sab, 0px) + 12px) !important;right:12px !important;max-height:none !important}",
+    "body.ms-sheet-open .tt-fab{display:none !important}"
+  ].join("\n");
+  var ttCargar = (doc = document) => {
+    if (doc.getElementById("ms-tt-script")) return null;
+    try {
+      const k = localStorage.getItem("orq_key");
+      if (k && localStorage.getItem("tt_key") !== k) localStorage.setItem("tt_key", k);
+    } catch {
+    }
+    const st = doc.createElement("style");
+    st.id = TT_CSS_ID;
+    st.textContent = ttCss();
+    doc.head.appendChild(st);
+    const s = doc.createElement("script");
+    s.id = "ms-tt-script";
+    s.async = true;
+    s.src = TT_BASE + "/ticktack.js";
+    s.onload = () => {
+      try {
+        window.TickTrack && window.TickTrack.init({ endpoint: TT_BASE + "/report", project: TT_PROYECTO, lang: "es-MX", hotkey: false });
+      } catch {
+      }
+    };
+    s.onerror = () => {
+      s.remove();
+    };
+    doc.head.appendChild(s);
+    return s;
+  };
+
   // src/orquesta.js
   var ORQ_COLECTOR = "https://anvil.tail8be012.ts.net/ticktack";
   var ORQ_PROYECTO = "misuper";
@@ -287,7 +326,7 @@ ${body}`;
     };
     return /* @__PURE__ */ React.createElement("svg", { className, width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, i[name]);
   };
-  var APP_VERSION = "29";
+  var APP_VERSION = "30";
   var Sheet = ({ title, onClose, footer, children, z = 50, testid, noX = false }) => /* @__PURE__ */ React.createElement("div", { className: "ms-overlay", style: { zIndex: z }, onClick: (e) => {
     if (e.target === e.currentTarget && onClose) onClose();
   } }, /* @__PURE__ */ React.createElement("div", { className: "ms-sheet", role: "dialog", "aria-modal": "true", "aria-label": typeof title === "string" ? title : void 0, "data-testid": testid }, (title || onClose) && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-head" }, /* @__PURE__ */ React.createElement("h2", { className: "serif ms-sheet-title min-w-0" }, title), onClose && !noX && /* @__PURE__ */ React.createElement("button", { onClick: onClose, "aria-label": "Cerrar", className: "ms-icon-btn", style: { color: "var(--ink-2)" } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 22 }))), children ? /* @__PURE__ */ React.createElement("div", { className: `ms-sheet-body ${footer ? "" : "no-foot"}`, "data-testid": "sheet-body" }, children) : null, footer && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-foot" }, footer)));
@@ -1847,6 +1886,12 @@ Reglas:
     useEffect(() => {
       if (modal === "orquesta" && orqSinVer) orqGuardar((prev) => prev.map((m) => m.estado === "atendido" ? { ...m, visto: true } : m));
     }, [modal, orqSinVer]);
+    useEffect(() => {
+      if (orqOn) ttCargar();
+    }, [orqOn]);
+    useEffect(() => {
+      document.body.classList.toggle("ms-sheet-open", !!(modal || addOpen));
+    }, [modal, addOpen]);
     if (window.__MS_TEST__) window.__ms = { setTab, setModal, openEdit, openView, setRecipeWizard, setInvFilter, setGroupByPlace, setSearchQuery, setUndoSnapshot, setConfirmData, setOnboarded, setObStep, setResult, setFilter, setHistView, setPurchases, setAddOpen, items, setOrqMsgs };
     const modalFooter = () => {
       if (modal === "edit" && editItem) return /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "ms-btn ms-btn-primary" }, "Guardar cambios");
