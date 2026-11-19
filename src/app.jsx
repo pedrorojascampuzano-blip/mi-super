@@ -1,6 +1,7 @@
 import { listShareText } from './lib.js';
 import { ttCargar } from './ticktrack.js';
 import { ORQ_MAX_FOTOS, ORQ_MAX_TEXTO, ESTADO_TXT, canSend, sendMsg, fetchReports, mergeEstados, loadMsgs, saveMsgs, newPending, shrinkDims } from './orquesta.js';
+import { TK_MAX_FOTOS, ticketPath, newCompraId, newTicket, addFoto, guardarPend, listarPend, borrarPend, b64ToBlob } from './tickets.js';
 import { appendPurchases, purchaseEntry, computeRendimientos, lastInfo, fmtDay, fmtMonth, fmtMoney, fmtLeft } from './rendimientos.js';
 
 const { useState, useEffect, useRef } = React;
@@ -46,7 +47,7 @@ const Icon = ({ name, size = 20, className = "" }) => {
 // Aparece visible en el header con un botón "↻ refrescar" que limpia
 // el cache del SW y recarga, para que Pedro pueda forzar update sin
 // tener que matar la PWA manualmente.
-const APP_VERSION = '30';
+const APP_VERSION = '31';
 
 // Hoja inferior única para todos los modales: cabecera fija, cuerpo con scroll propio y pie fijo.
 // Vive dentro de #root, que sigue al visualViewport, así que el teclado nunca tapa el pie.
@@ -144,6 +145,14 @@ const SuperApp = () => {
     // Historial de compras (nuevo en v25). Solo se agrega; vive en este dispositivo.
     const [purchases, setPurchases] = useState(() => { try { return JSON.parse(localStorage.getItem('purchases_v1')) || []; } catch { return []; } });
     const [histView, setHistView] = useState('compras');
+    // Tickets de compra (v31): fotos ligadas a cada compra. Las que no se pudieron subir esperan en IndexedDB.
+    const [tickets, setTickets] = useState(() => { try { return JSON.parse(localStorage.getItem('tickets_v1')) || []; } catch { return []; } });
+    useEffect(() => { try { localStorage.setItem('tickets_v1', JSON.stringify(tickets)); } catch {} }, [tickets]);
+    const [ckOpen, setCkOpen] = useState(false);
+    const [ckFotos, setCkFotos] = useState([]);
+    const [ckBusy, setCkBusy] = useState(false);
+    const [ckMsg, setCkMsg] = useState('');
+    const [pendThumbs, setPendThumbs] = useState({});
     const [addOpen, setAddOpen] = useState(false);
     const [recentlyAdded, setRecentlyAdded] = useState([]);
     useEffect(() => { if (!addOpen) setRecentlyAdded([]); }, [addOpen]);
@@ -254,6 +263,7 @@ const SuperApp = () => {
     useEffect(() => { localStorage.setItem('data_v4', JSON.stringify(items)); }, [items]);
     useEffect(() => { try { localStorage.setItem('purchases_v1', JSON.stringify(purchases)); } catch {} }, [purchases]);
     const itemsRef = useRef(items); itemsRef.current = items;
+    const ticketsRef = useRef(tickets); ticketsRef.current = tickets;
     useEffect(() => { localStorage.setItem('saved_tags', JSON.stringify(savedTags)); }, [savedTags]);
     useEffect(() => { localStorage.setItem('gem_key', key); }, [key]);
     useEffect(() => { if (orqLlave) localStorage.setItem('orq_key', orqLlave); else localStorage.removeItem('orq_key'); }, [orqLlave]);
@@ -382,6 +392,25 @@ const SuperApp = () => {
         })();
     }, [items, cloudMode, groupId]);
 
+    // Fotos de tickets en cola: subir al abrir, al volver la red y al entrar a Historial.
+    useEffect(() => {
+        if (!cloudMode) return;
+        const t = setTimeout(() => subirTickets(), 1500);
+        const on = () => subirTickets();
+        window.addEventListener('online', on);
+        return () => { clearTimeout(t); window.removeEventListener('online', on); };
+    }, [cloudMode, groupId, syncStatus === 'online']);
+    useEffect(() => {
+        if (tab !== 'hist' || histView !== 'rend') return;
+        let vivo = true; const urls = [];
+        listarPend().then(pend => {
+            const m = {};
+            pend.forEach(f => { const u = URL.createObjectURL(b64ToBlob(f.data, f.mime)); urls.push(u); (m[f.compraId] = m[f.compraId] || []).push(u); });
+            if (vivo) setPendThumbs(m);
+        }).catch(() => {});
+        return () => { vivo = false; urls.forEach(u => URL.revokeObjectURL(u)); };
+    }, [tab, histView, tickets]);
+
     // Re-attempt sync when network returns
     useEffect(() => {
         if (!cloudMode) return;
@@ -495,25 +524,84 @@ const SuperApp = () => {
     const requestCheckout = () => {
         const count = items.filter(i => i.status === 'cart').length;
         if (count === 0) return;
-        setConfirmData({
-            isOpen: true,
-            msg: `¿Mover ${count} productos a Casa?`,
-            action: () => {
-                const snapshot = items;
-                const purchasesSnapshot = purchases;
-                const today = todayISO();
-                setPurchases(p => appendPurchases(p, items.filter(i => i.status === 'cart').map(i => purchaseEntry(i, today, 'compra'))));
-                setItems(prev => prev.map(i => i.status === 'cart' ? { ...i, status: 'stocked', lastBought: today } : i));
-                setTab('inv');
-                setConfirmData({ isOpen: false });
-                if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-                setUndoSnapshot({ items: snapshot, purchases: purchasesSnapshot, label: `${count} productos a Casa` });
-                undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5000);
-            },
-            actionText: "Finalizar compra"
-        });
+        setCkFotos([]); setCkMsg(''); setCkOpen(true);
     };
-
+    // Cierra la compra como siempre; si trae fotos, las deja ligadas a esa compra y las sube sin bloquear.
+    const finalizarCompra = async (fotos = []) => {
+        if (ckBusy) return;
+        const count = items.filter(i => i.status === 'cart').length;
+        if (count === 0) { setCkOpen(false); return; }
+        setCkBusy(true);
+        const snapshot = items;
+        const purchasesSnapshot = purchases;
+        const ticketsSnapshot = tickets;
+        const today = todayISO();
+        let compraId = null;
+        if (fotos.length) {
+            compraId = newCompraId();
+            try { await guardarPend(compraId, groupId || 'local', fotos); } catch (e) { console.warn('cola de fotos', e); }
+            const tk = newTicket(compraId, today, count, fotos.length);
+            ticketsRef.current = [...ticketsRef.current, tk];
+            setTickets(t => [...t, tk]);
+        }
+        setPurchases(p => appendPurchases(p, items.filter(i => i.status === 'cart').map(i => purchaseEntry(i, today, 'compra'))));
+        setItems(prev => prev.map(i => i.status === 'cart' ? { ...i, status: 'stocked', lastBought: today } : i));
+        setTab('inv');
+        setCkOpen(false); setCkFotos([]); setCkBusy(false);
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        setUndoSnapshot({ items: snapshot, purchases: purchasesSnapshot, tickets: ticketsSnapshot, label: fotos.length ? `${count} productos a Casa · ${fotos.length} ${fotos.length === 1 ? 'foto' : 'fotos'} del ticket` : `${count} productos a Casa` });
+        undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5000);
+        if (compraId) { subirTickets(); leerTicketsIA(fotos); }
+    };
+    const ckAgregar = async (files) => {
+        for (const f of Array.from(files)) {
+            try {
+                const bmp = await createImageBitmap(f);
+                const [w, h] = shrinkDims(bmp.width, bmp.height, 1600);
+                const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+                cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+                const data = cv.toDataURL('image/jpeg', 0.8).split(',')[1];
+                setCkFotos(prev => prev.length >= TK_MAX_FOTOS ? prev : [...prev, { data, mime: 'image/jpeg' }]);
+            } catch { setCkMsg('No pude leer esa imagen.'); }
+        }
+    };
+    // Sube las fotos en cola (IndexedDB) a Storage; sin red o sin grupo se quedan para después.
+    const subiendoRef = useRef(false);
+    const subirTickets = async () => {
+        if (subiendoRef.current) return;
+        subiendoRef.current = true;
+        try {
+            const sb = sbRef.current;
+            if (!cloudMode || !sb || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+            let pend = [];
+            try { pend = await listarPend(); } catch { return; }
+            for (const f of pend) {
+                if (f.groupId !== groupId) continue;
+                if (!ticketsRef.current.some(t => t.id === f.compraId)) { await borrarPend(f.key).catch(() => {}); continue; }
+                const path = ticketPath(f.groupId, f.compraId, f.n);
+                const blob = b64ToBlob(f.data, f.mime);
+                const up = () => sb.storage.from('item-photos').upload(path, blob, { upsert: true, cacheControl: '3600', contentType: 'image/jpeg' });
+                let { error } = await up();
+                if (error && /401|403|auth|jwt|unauthor/i.test(String(error.message || error.statusCode || ''))) {
+                    try { await sb.auth.signInAnonymously(); } catch {}
+                    ({ error } = await up());
+                }
+                if (error) { console.warn('ticket upload', error); continue; }
+                const { data: pub } = sb.storage.from('item-photos').getPublicUrl(path);
+                setTickets(t => addFoto(t, f.compraId, pub.publicUrl));
+                await borrarPend(f.key).catch(() => {});
+            }
+        } finally { subiendoRef.current = false; }
+    };
+    // Si hay llave de IA, lee los precios del ticket sin bloquear el cierre.
+    const leerTicketsIA = async (fotos) => {
+        if (!(key || claudeKey || openaiKey)) return;
+        for (const f of fotos) {
+            const text = await callAI(TICKET_PROMPT, { mime: f.mime, data: f.data }, true);
+            setLoading(false); setResult(null);
+            if (text) { const msg = aplicarTicket(text); if (msg) showToast(msg); }
+        }
+    };
     const handleExportCSV = () => {
         const headers = ["ID,Nombre,Lugares,Categoria,Estado,Esencial,UltimaCompra,Cantidad,Precio,Caducidad"];
         const rows = items.map(i => 
@@ -745,6 +833,37 @@ const SuperApp = () => {
         }
     };
 
+    const TICKET_PROMPT = `Analiza ticket de compra. Extrae productos y precios. Devuelve JSON con esta forma exacta: {"items":[{"name":"Prod","price":10.50,"qty":"1"}]}. SOLO JSON.`;
+    // Aplica lo que la IA leyó del ticket (precios al historial). Devuelve el mensaje para mostrar.
+    const aplicarTicket = (text) => {
+        try {
+            const parsed = JSON.parse(cleanJSON(text));
+            const ticketItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
+            if (ticketItems.length === 0) return "Ticket procesado pero no se detectaron productos.";
+            let added = 0, updated = 0;
+            const today = todayISO();
+            const list = [...itemsRef.current];
+            const bought = [];
+            ticketItems.forEach(t => {
+                const idx = list.findIndex(i => i.name.toLowerCase().includes(t.name.toLowerCase()));
+                if (idx >= 0) {
+                    list[idx] = { ...list[idx], price: t.price, lastBought: today, status: 'stocked' };
+                    bought.push(purchaseEntry(list[idx], today, 'ticket', t.price, t.qty));
+                    updated++;
+                } else {
+                    const created = { id: newId(), name: t.name, places: ['Ticket'], status: 'stocked', lastBought: today, qty: t.qty || '1', price: t.price, expiry: '', category: 'Otros', isEssential: false };
+                    list.push(created);
+                    bought.push(purchaseEntry(created, today, 'ticket', t.price, t.qty));
+                    added++;
+                }
+            });
+            itemsRef.current = list;
+            setItems(list);
+            setPurchases(p => appendPurchases(p, bought));
+            return `Ticket: ${added} nuevos, ${updated} actualizados. Quedó en Rendimientos.`;
+        } catch (err) { return "Error procesando datos del ticket."; }
+    };
+
     const handleTicketUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -753,36 +872,8 @@ const SuperApp = () => {
         reader.readAsDataURL(file);
         reader.onloadend = async () => {
             const base64Data = reader.result.split(',')[1];
-            const mimeType = file.type;
-            const promptText = `Analiza ticket de compra. Extrae productos y precios. Devuelve JSON con esta forma exacta: {"items":[{"name":"Prod","price":10.50,"qty":"1"}]}. SOLO JSON.`;
-            const text = await callAI(promptText, { mime: mimeType, data: base64Data }, true);
-            if (text) {
-                try {
-                    const parsed = JSON.parse(cleanJSON(text));
-                    const ticketItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
-                    if (ticketItems.length === 0) { setResult("Ticket procesado pero no se detectaron productos."); return; }
-                    let added = 0, updated = 0;
-                    const today = todayISO();
-                    const list = [...itemsRef.current];
-                    const bought = [];
-                    ticketItems.forEach(t => {
-                        const idx = list.findIndex(i => i.name.toLowerCase().includes(t.name.toLowerCase()));
-                        if (idx >= 0) {
-                            list[idx] = { ...list[idx], price: t.price, lastBought: today, status: 'stocked' };
-                            bought.push(purchaseEntry(list[idx], today, 'ticket', t.price, t.qty));
-                            updated++;
-                        } else {
-                            const created = { id: newId(), name: t.name, places: ['Ticket'], status: 'stocked', lastBought: today, qty: t.qty || '1', price: t.price, expiry: '', category: 'Otros', isEssential: false };
-                            list.push(created);
-                            bought.push(purchaseEntry(created, today, 'ticket', t.price, t.qty));
-                            added++;
-                        }
-                    });
-                    setItems(list);
-                    setPurchases(p => appendPurchases(p, bought));
-                    setResult(`Ticket: ${added} nuevos, ${updated} actualizados. Quedó en Rendimientos.`);
-                } catch (err) { setResult("Error procesando datos del ticket."); }
-            }
+            const text = await callAI(TICKET_PROMPT, { mime: file.type, data: base64Data }, true);
+            if (text) setResult(aplicarTicket(text));
         };
     };
 
@@ -1477,6 +1568,22 @@ Reglas:
                     {r.months.length > 0 && <Note>Finalizar compra usa el último precio guardado de cada producto; el ticket usa el precio que se leyó.</Note>}
                 </section>
 
+                {tickets.some(t => t.fotos.length || t.pendientes) && (
+                    <section data-testid="tickets-hist">
+                        <Head>Tickets</Head>
+                        {[...tickets].filter(t => t.fotos.length || t.pendientes).reverse().slice(0, 20).map(t => (
+                            <div key={t.id} className="ms-row" style={{display:'block', minHeight:0}}>
+                                <p className="ms-name">{fmtDay(t.date)} · {t.count} {t.count === 1 ? 'producto' : 'productos'}</p>
+                                <div className="flex gap-2 flex-wrap" style={{marginTop:6}}>
+                                    {t.fotos.map((u, k) => <a key={u} href={u} target="_blank" rel="noopener"><img src={u} alt={`Ticket ${k+1}`} loading="lazy" style={{width:72,height:72,objectFit:'cover',borderRadius:6,background:'var(--paper-2)'}}/></a>)}
+                                    {(pendThumbs[t.id] || []).map((u, k) => <img key={u} src={u} alt={`Ticket por subir ${k+1}`} style={{width:72,height:72,objectFit:'cover',borderRadius:6,opacity:.55}}/>)}
+                                </div>
+                                {t.pendientes > 0 && <p className="ms-meta">{t.pendientes} {t.pendientes === 1 ? 'foto por subir' : 'fotos por subir'}{cloudMode ? '' : ' · se sube al activar el grupo'}</p>}
+                            </div>
+                        ))}
+                    </section>
+                )}
+
                 {r.categories.length > 0 && (
                     <section>
                         <Head>Por categoría · desde el {fmtDay(r.categoryWindowStart)}</Head>
@@ -1683,7 +1790,7 @@ Reglas:
                     {undoSnapshot && (
                         <div className="ms-toast" role="status">
                             <span>{undoSnapshot.label}</span>
-                            <button onClick={() => { setItems(undoSnapshot.items); if (undoSnapshot.purchases) setPurchases(undoSnapshot.purchases); setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="ms-link-strong">Deshacer</button>
+                            <button onClick={() => { setItems(undoSnapshot.items); if (undoSnapshot.purchases) setPurchases(undoSnapshot.purchases); if (undoSnapshot.tickets) { ticketsRef.current = undoSnapshot.tickets; setTickets(undoSnapshot.tickets); } setUndoSnapshot(null); if (undoTimerRef.current) clearTimeout(undoTimerRef.current); }} className="ms-link-strong">Deshacer</button>
                         </div>
                     )}
                     {notice && !undoSnapshot && <div className="ms-toast" role="status"><span>{notice}</span></div>}
@@ -1720,6 +1827,39 @@ Reglas:
                             <label className="ms-link cursor-pointer flex items-center gap-1.5" aria-label="Leer ticket"><Icon name="Receipt" size={16}/> Leer ticket<input type="file" accept="image/*" className="hidden" onChange={(e)=>{ setAddOpen(false); handleTicketUpload(e); }}/></label>
                         </div>
                         {recentlyAdded.length > 0 && <p className="ms-hint">Agregado: {recentlyAdded.join(', ')}</p>}
+                    </div>
+                </Sheet>
+            )}
+
+            {ckOpen && (
+                <Sheet z={70} testid="checkout" onClose={() => !ckBusy && setCkOpen(false)} title="Finalizar compra"
+                    footer={<>
+                        <button onClick={() => finalizarCompra(ckFotos)} disabled={ckBusy || ckFotos.length === 0} className="ms-btn ms-btn-primary" data-testid="ck-con-ticket">{ckFotos.length ? `Finalizar con ticket · ${ckFotos.length} ${ckFotos.length === 1 ? 'foto' : 'fotos'}` : 'Finalizar con ticket'}</button>
+                        <button onClick={() => finalizarCompra([])} disabled={ckBusy} className="ms-btn ms-btn-secondary" data-testid="ck-saltar">Saltar y finalizar</button>
+                        <button onClick={() => setCkOpen(false)} disabled={ckBusy} className="ms-link" style={{alignSelf:'center'}}>Cancelar</button>
+                    </>}>
+                    <div className="space-y-4" data-testid="ck-body">
+                        <p className="ms-prose" style={{color:'var(--ink-2)'}}>{cartCount} {cartCount === 1 ? 'producto pasa' : 'productos pasan'} a Casa. Si quieres, guarda el ticket. Es opcional.</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <label className={`ms-btn ms-btn-secondary cursor-pointer ${ckFotos.length >= TK_MAX_FOTOS ? 'opacity-50' : ''}`}><Icon name="Camera" size={18}/> Tomar foto
+                                <input type="file" accept="image/*" capture="environment" className="hidden" data-testid="ck-camara" disabled={ckFotos.length >= TK_MAX_FOTOS} onChange={e => { if (e.target.files?.length) ckAgregar(e.target.files); e.target.value=''; }}/>
+                            </label>
+                            <label className={`ms-btn ms-btn-secondary cursor-pointer ${ckFotos.length >= TK_MAX_FOTOS ? 'opacity-50' : ''}`}><Icon name="Receipt" size={18}/> Galería
+                                <input type="file" accept="image/*" multiple className="hidden" data-testid="ck-galeria" disabled={ckFotos.length >= TK_MAX_FOTOS} onChange={e => { if (e.target.files?.length) ckAgregar(e.target.files); e.target.value=''; }}/>
+                            </label>
+                        </div>
+                        {ckFotos.length > 0 && (
+                            <div className="grid grid-cols-3 gap-2" data-testid="ck-fotos">
+                                {ckFotos.map((sh, i) => (
+                                    <figure key={i} className="relative">
+                                        <img src={`data:${sh.mime};base64,${sh.data}`} alt={`Ticket ${i+1}`} className="w-full aspect-square object-cover" style={{borderRadius:6, background:'var(--paper-2)'}}/>
+                                        <button type="button" onClick={() => setCkFotos(prev => prev.filter((_, k) => k !== i))} aria-label="Quitar foto" className="absolute top-0 right-0 ms-icon-btn" style={{width:36,height:36,color:'#fff',filter:'drop-shadow(0 0 2px rgba(0,0,0,.7))'}}><Icon name="X" size={18}/></button>
+                                    </figure>
+                                ))}
+                            </div>
+                        )}
+                        {ckMsg && <p className="ms-hint" role="status" style={{color:'var(--ink)'}}>{ckMsg}</p>}
+                        <p className="ms-hint">Sin internet también funciona: las fotos se suben cuando vuelva la red.</p>
                     </div>
                 </Sheet>
             )}

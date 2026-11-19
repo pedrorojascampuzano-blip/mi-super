@@ -114,3 +114,8 @@ launchctl print "gui/$(id -u)/com.pedro.miSuper.watcher" 2>/dev/null
 node scripts/sync-photos.mjs
 ```
 
+
+
+## Finalizar compra con ticket (v31)
+
+Al tocar **Finalizar compra** se abre un paso con dos caminos: tomar foto(s) del ticket (cámara o galería, hasta 6) y «Finalizar con ticket», o «Saltar y finalizar» sin fotos. Las fotos suben a `item-photos/tickets/<group_id>/<compra_id>-<n>.jpeg` (misma bucket y políticas que las fotos de producto: no hace falta migración). Sin red o sin grupo quedan en IndexedDB (`mi-super-tickets`) y suben solas al volver la red. El historial local `tickets_v1` liga cada compra con sus fotos y Rendimientos las muestra en la sección Tickets. Si hay llave de IA, el ticket se lee en segundo plano para llenar precios.

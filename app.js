@@ -153,6 +153,50 @@ ${body}`;
     return [Math.round(w * k), Math.round(h * k)];
   };
 
+  // src/tickets.js
+  var TK_MAX_FOTOS = 6;
+  var DB = "mi-super-tickets";
+  var STORE = "pend";
+  var ticketPath = (groupId, compraId, n) => `tickets/${groupId}/${compraId}-${n}.jpeg`;
+  var newCompraId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  var newTicket = (id, date, count, nFotos) => ({ id, date, ts: Date.now(), count, fotos: [], pendientes: nFotos });
+  var addFoto = (log, id, url) => log.map((t) => t.id === id ? { ...t, fotos: t.fotos.includes(url) ? t.fotos : [...t.fotos, url], pendientes: Math.max(0, t.pendientes - 1) } : t);
+  var open = () => new Promise((res, rej) => {
+    if (typeof indexedDB === "undefined") return rej(new Error("sin IndexedDB"));
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: "key" });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  var tx = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction(STORE, mode);
+      const out = fn(t.objectStore(STORE));
+      t.oncomplete = () => {
+        db.close();
+        res(out && "result" in out ? out.result : void 0);
+      };
+      t.onerror = () => {
+        db.close();
+        rej(t.error);
+      };
+    });
+  };
+  var guardarPend = (compraId, groupId, fotos) => tx("readwrite", (s) => {
+    fotos.forEach((f, i) => s.put({ key: `${compraId}-${i + 1}`, compraId, groupId, n: i + 1, mime: f.mime, data: f.data }));
+  });
+  var listarPend = () => tx("readonly", (s) => s.getAll());
+  var borrarPend = (key) => tx("readwrite", (s) => {
+    s.delete(key);
+  });
+  var b64ToBlob = (data, mime) => {
+    const bin = atob(data);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return new Blob([u], { type: mime || "image/jpeg" });
+  };
+
   // src/rendimientos.js
   var DAY = 864e5;
   var toDate = (iso) => /* @__PURE__ */ new Date(iso + "T12:00:00");
@@ -326,7 +370,7 @@ ${body}`;
     };
     return /* @__PURE__ */ React.createElement("svg", { className, width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.75", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, i[name]);
   };
-  var APP_VERSION = "30";
+  var APP_VERSION = "31";
   var Sheet = ({ title, onClose, footer, children, z = 50, testid, noX = false }) => /* @__PURE__ */ React.createElement("div", { className: "ms-overlay", style: { zIndex: z }, onClick: (e) => {
     if (e.target === e.currentTarget && onClose) onClose();
   } }, /* @__PURE__ */ React.createElement("div", { className: "ms-sheet", role: "dialog", "aria-modal": "true", "aria-label": typeof title === "string" ? title : void 0, "data-testid": testid }, (title || onClose) && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-head" }, /* @__PURE__ */ React.createElement("h2", { className: "serif ms-sheet-title min-w-0" }, title), onClose && !noX && /* @__PURE__ */ React.createElement("button", { onClick: onClose, "aria-label": "Cerrar", className: "ms-icon-btn", style: { color: "var(--ink-2)" } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 22 }))), children ? /* @__PURE__ */ React.createElement("div", { className: `ms-sheet-body ${footer ? "" : "no-foot"}`, "data-testid": "sheet-body" }, children) : null, footer && /* @__PURE__ */ React.createElement("div", { className: "ms-sheet-foot" }, footer)));
@@ -430,6 +474,24 @@ ${body}`;
       }
     });
     const [histView, setHistView] = useState("compras");
+    const [tickets, setTickets] = useState(() => {
+      try {
+        return JSON.parse(localStorage.getItem("tickets_v1")) || [];
+      } catch {
+        return [];
+      }
+    });
+    useEffect(() => {
+      try {
+        localStorage.setItem("tickets_v1", JSON.stringify(tickets));
+      } catch {
+      }
+    }, [tickets]);
+    const [ckOpen, setCkOpen] = useState(false);
+    const [ckFotos, setCkFotos] = useState([]);
+    const [ckBusy, setCkBusy] = useState(false);
+    const [ckMsg, setCkMsg] = useState("");
+    const [pendThumbs, setPendThumbs] = useState({});
     const [addOpen, setAddOpen] = useState(false);
     const [recentlyAdded, setRecentlyAdded] = useState([]);
     useEffect(() => {
@@ -549,6 +611,8 @@ ${body}`;
     }, [purchases]);
     const itemsRef = useRef(items);
     itemsRef.current = items;
+    const ticketsRef = useRef(tickets);
+    ticketsRef.current = tickets;
     useEffect(() => {
       localStorage.setItem("saved_tags", JSON.stringify(savedTags));
     }, [savedTags]);
@@ -709,6 +773,35 @@ ${body}`;
     }, [items, cloudMode, groupId]);
     useEffect(() => {
       if (!cloudMode) return;
+      const t = setTimeout(() => subirTickets(), 1500);
+      const on = () => subirTickets();
+      window.addEventListener("online", on);
+      return () => {
+        clearTimeout(t);
+        window.removeEventListener("online", on);
+      };
+    }, [cloudMode, groupId, syncStatus === "online"]);
+    useEffect(() => {
+      if (tab !== "hist" || histView !== "rend") return;
+      let vivo = true;
+      const urls = [];
+      listarPend().then((pend) => {
+        const m = {};
+        pend.forEach((f) => {
+          const u = URL.createObjectURL(b64ToBlob(f.data, f.mime));
+          urls.push(u);
+          (m[f.compraId] = m[f.compraId] || []).push(u);
+        });
+        if (vivo) setPendThumbs(m);
+      }).catch(() => {
+      });
+      return () => {
+        vivo = false;
+        urls.forEach((u) => URL.revokeObjectURL(u));
+      };
+    }, [tab, histView, tickets]);
+    useEffect(() => {
+      if (!cloudMode) return;
       const onOnline = () => {
         setSyncStatus("connecting");
         lastSyncedRef.current = [];
@@ -842,23 +935,119 @@ ${body}`;
     const requestCheckout = () => {
       const count = items.filter((i) => i.status === "cart").length;
       if (count === 0) return;
-      setConfirmData({
-        isOpen: true,
-        msg: `¿Mover ${count} productos a Casa?`,
-        action: () => {
-          const snapshot = items;
-          const purchasesSnapshot = purchases;
-          const today = todayISO();
-          setPurchases((p) => appendPurchases(p, items.filter((i) => i.status === "cart").map((i) => purchaseEntry(i, today, "compra"))));
-          setItems((prev) => prev.map((i) => i.status === "cart" ? { ...i, status: "stocked", lastBought: today } : i));
-          setTab("inv");
-          setConfirmData({ isOpen: false });
-          if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-          setUndoSnapshot({ items: snapshot, purchases: purchasesSnapshot, label: `${count} productos a Casa` });
-          undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5e3);
-        },
-        actionText: "Finalizar compra"
-      });
+      setCkFotos([]);
+      setCkMsg("");
+      setCkOpen(true);
+    };
+    const finalizarCompra = async (fotos = []) => {
+      if (ckBusy) return;
+      const count = items.filter((i) => i.status === "cart").length;
+      if (count === 0) {
+        setCkOpen(false);
+        return;
+      }
+      setCkBusy(true);
+      const snapshot = items;
+      const purchasesSnapshot = purchases;
+      const ticketsSnapshot = tickets;
+      const today = todayISO();
+      let compraId = null;
+      if (fotos.length) {
+        compraId = newCompraId();
+        try {
+          await guardarPend(compraId, groupId || "local", fotos);
+        } catch (e) {
+          console.warn("cola de fotos", e);
+        }
+        const tk = newTicket(compraId, today, count, fotos.length);
+        ticketsRef.current = [...ticketsRef.current, tk];
+        setTickets((t) => [...t, tk]);
+      }
+      setPurchases((p) => appendPurchases(p, items.filter((i) => i.status === "cart").map((i) => purchaseEntry(i, today, "compra"))));
+      setItems((prev) => prev.map((i) => i.status === "cart" ? { ...i, status: "stocked", lastBought: today } : i));
+      setTab("inv");
+      setCkOpen(false);
+      setCkFotos([]);
+      setCkBusy(false);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      setUndoSnapshot({ items: snapshot, purchases: purchasesSnapshot, tickets: ticketsSnapshot, label: fotos.length ? `${count} productos a Casa · ${fotos.length} ${fotos.length === 1 ? "foto" : "fotos"} del ticket` : `${count} productos a Casa` });
+      undoTimerRef.current = setTimeout(() => setUndoSnapshot(null), 5e3);
+      if (compraId) {
+        subirTickets();
+        leerTicketsIA(fotos);
+      }
+    };
+    const ckAgregar = async (files) => {
+      for (const f of Array.from(files)) {
+        try {
+          const bmp = await createImageBitmap(f);
+          const [w, h] = shrinkDims(bmp.width, bmp.height, 1600);
+          const cv = document.createElement("canvas");
+          cv.width = w;
+          cv.height = h;
+          cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+          const data = cv.toDataURL("image/jpeg", 0.8).split(",")[1];
+          setCkFotos((prev) => prev.length >= TK_MAX_FOTOS ? prev : [...prev, { data, mime: "image/jpeg" }]);
+        } catch {
+          setCkMsg("No pude leer esa imagen.");
+        }
+      }
+    };
+    const subiendoRef = useRef(false);
+    const subirTickets = async () => {
+      if (subiendoRef.current) return;
+      subiendoRef.current = true;
+      try {
+        const sb = sbRef.current;
+        if (!cloudMode || !sb || typeof navigator !== "undefined" && navigator.onLine === false) return;
+        let pend = [];
+        try {
+          pend = await listarPend();
+        } catch {
+          return;
+        }
+        for (const f of pend) {
+          if (f.groupId !== groupId) continue;
+          if (!ticketsRef.current.some((t) => t.id === f.compraId)) {
+            await borrarPend(f.key).catch(() => {
+            });
+            continue;
+          }
+          const path = ticketPath(f.groupId, f.compraId, f.n);
+          const blob = b64ToBlob(f.data, f.mime);
+          const up = () => sb.storage.from("item-photos").upload(path, blob, { upsert: true, cacheControl: "3600", contentType: "image/jpeg" });
+          let { error } = await up();
+          if (error && /401|403|auth|jwt|unauthor/i.test(String(error.message || error.statusCode || ""))) {
+            try {
+              await sb.auth.signInAnonymously();
+            } catch {
+            }
+            ({ error } = await up());
+          }
+          if (error) {
+            console.warn("ticket upload", error);
+            continue;
+          }
+          const { data: pub } = sb.storage.from("item-photos").getPublicUrl(path);
+          setTickets((t) => addFoto(t, f.compraId, pub.publicUrl));
+          await borrarPend(f.key).catch(() => {
+          });
+        }
+      } finally {
+        subiendoRef.current = false;
+      }
+    };
+    const leerTicketsIA = async (fotos) => {
+      if (!(key || claudeKey || openaiKey)) return;
+      for (const f of fotos) {
+        const text = await callAI(TICKET_PROMPT, { mime: f.mime, data: f.data }, true);
+        setLoading(false);
+        setResult(null);
+        if (text) {
+          const msg = aplicarTicket(text);
+          if (msg) showToast(msg);
+        }
+      }
     };
     const handleExportCSV = () => {
       const headers = ["ID,Nombre,Lugares,Categoria,Estado,Esencial,UltimaCompra,Cantidad,Precio,Caducidad"];
@@ -1098,6 +1287,37 @@ ${body}`;
         }
       }
     };
+    const TICKET_PROMPT = `Analiza ticket de compra. Extrae productos y precios. Devuelve JSON con esta forma exacta: {"items":[{"name":"Prod","price":10.50,"qty":"1"}]}. SOLO JSON.`;
+    const aplicarTicket = (text) => {
+      try {
+        const parsed = JSON.parse(cleanJSON(text));
+        const ticketItems = Array.isArray(parsed) ? parsed : parsed.items || [];
+        if (ticketItems.length === 0) return "Ticket procesado pero no se detectaron productos.";
+        let added = 0, updated = 0;
+        const today = todayISO();
+        const list2 = [...itemsRef.current];
+        const bought = [];
+        ticketItems.forEach((t) => {
+          const idx = list2.findIndex((i) => i.name.toLowerCase().includes(t.name.toLowerCase()));
+          if (idx >= 0) {
+            list2[idx] = { ...list2[idx], price: t.price, lastBought: today, status: "stocked" };
+            bought.push(purchaseEntry(list2[idx], today, "ticket", t.price, t.qty));
+            updated++;
+          } else {
+            const created = { id: newId(), name: t.name, places: ["Ticket"], status: "stocked", lastBought: today, qty: t.qty || "1", price: t.price, expiry: "", category: "Otros", isEssential: false };
+            list2.push(created);
+            bought.push(purchaseEntry(created, today, "ticket", t.price, t.qty));
+            added++;
+          }
+        });
+        itemsRef.current = list2;
+        setItems(list2);
+        setPurchases((p) => appendPurchases(p, bought));
+        return `Ticket: ${added} nuevos, ${updated} actualizados. Quedó en Rendimientos.`;
+      } catch (err) {
+        return "Error procesando datos del ticket.";
+      }
+    };
     const handleTicketUpload = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -1107,41 +1327,8 @@ ${body}`;
       reader.readAsDataURL(file);
       reader.onloadend = async () => {
         const base64Data = reader.result.split(",")[1];
-        const mimeType = file.type;
-        const promptText = `Analiza ticket de compra. Extrae productos y precios. Devuelve JSON con esta forma exacta: {"items":[{"name":"Prod","price":10.50,"qty":"1"}]}. SOLO JSON.`;
-        const text = await callAI(promptText, { mime: mimeType, data: base64Data }, true);
-        if (text) {
-          try {
-            const parsed = JSON.parse(cleanJSON(text));
-            const ticketItems = Array.isArray(parsed) ? parsed : parsed.items || [];
-            if (ticketItems.length === 0) {
-              setResult("Ticket procesado pero no se detectaron productos.");
-              return;
-            }
-            let added = 0, updated = 0;
-            const today = todayISO();
-            const list2 = [...itemsRef.current];
-            const bought = [];
-            ticketItems.forEach((t) => {
-              const idx = list2.findIndex((i) => i.name.toLowerCase().includes(t.name.toLowerCase()));
-              if (idx >= 0) {
-                list2[idx] = { ...list2[idx], price: t.price, lastBought: today, status: "stocked" };
-                bought.push(purchaseEntry(list2[idx], today, "ticket", t.price, t.qty));
-                updated++;
-              } else {
-                const created = { id: newId(), name: t.name, places: ["Ticket"], status: "stocked", lastBought: today, qty: t.qty || "1", price: t.price, expiry: "", category: "Otros", isEssential: false };
-                list2.push(created);
-                bought.push(purchaseEntry(created, today, "ticket", t.price, t.qty));
-                added++;
-              }
-            });
-            setItems(list2);
-            setPurchases((p) => appendPurchases(p, bought));
-            setResult(`Ticket: ${added} nuevos, ${updated} actualizados. Quedó en Rendimientos.`);
-          } catch (err) {
-            setResult("Error procesando datos del ticket.");
-          }
-        }
+        const text = await callAI(TICKET_PROMPT, { mime: file.type, data: base64Data }, true);
+        if (text) setResult(aplicarTicket(text));
       };
     };
     const handleChef = async () => {
@@ -1915,7 +2102,7 @@ Reglas:
       const maxMonth = Math.max(1, ...r.months.map((m) => m.total));
       const Head = ({ children }) => /* @__PURE__ */ React.createElement("div", { className: "ms-group", style: { paddingTop: 22 } }, children);
       const Note = ({ children }) => /* @__PURE__ */ React.createElement("p", { className: "ms-note", style: { color: "var(--ink-3)" } }, children);
-      return /* @__PURE__ */ React.createElement("div", { "data-testid": "rendimientos" }, /* @__PURE__ */ React.createElement("p", { className: "ms-note", style: { marginTop: 4 } }, r.since ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Historial desde el ", fmtDay(r.since), ": ", r.totalPurchases, " ", r.totalPurchases === 1 ? "compra registrada" : "compras registradas", ".") : /* @__PURE__ */ React.createElement(React.Fragment, null, "El historial se empieza a llenar desde esta versión: cada vez que finalizas una compra o lees un ticket. Antes la app solo guardaba la última compra y el último precio de cada producto.")), r.runningOut.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Por acabarse"), r.runningOut.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, "cada ", p.every, " días · última ", fmtDay(p.last), " · ", /* @__PURE__ */ React.createElement("span", { className: p.daysLeft < 0 ? "warn" : "" }, fmtLeft(p.daysLeft)))), /* @__PURE__ */ React.createElement("button", { onClick: () => addToList([p.itemId]), className: "ms-link-strong shrink-0" }, "A la lista"))), r.runningOut.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px var(--gutter)" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => addToList(r.runningOut.map((p) => p.itemId)), className: "ms-btn ms-btn-secondary" }, "Agregar los ", r.runningOut.length, " a la lista"))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Cada cuánto se acaba"), r.products.length > 0 ? r.products.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, "cada ", p.every, " días · ", p.purchases, " compras · última ", fmtDay(p.last))), /* @__PURE__ */ React.createElement("p", { className: "ms-meta shrink-0 text-right", style: { marginTop: 0 } }, fmtDay(p.next), /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { className: p.daysLeft < 0 ? "warn" : "" }, fmtLeft(p.daysLeft))))) : /* @__PURE__ */ React.createElement(Note, null, "Para saber cada cuánto se acaba un producto hacen falta al menos dos compras registradas en días distintos.", r.singles.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " Hoy hay ", r.singles.length, " ", r.singles.length === 1 ? "producto" : "productos", " con una sola."))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Gasto por mes"), r.months.length > 0 ? r.months.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.month, className: "ms-row", style: { display: "block", minHeight: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-baseline justify-between gap-3" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16 } }, fmtMonth(m.month)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, fontVariantNumeric: "tabular-nums" } }, fmtMoney(m.total))), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { height: 2, background: "var(--rule)", marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 2, width: `${m.total / maxMonth * 100}%`, background: "var(--ink)" } })), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, m.purchases, " ", m.purchases === 1 ? "compra" : "compras", m.unpriced > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", m.unpriced, " sin precio, no suman")))) : /* @__PURE__ */ React.createElement(Note, null, "Todavía no hay compras registradas."), r.months.length > 0 && /* @__PURE__ */ React.createElement(Note, null, "Finalizar compra usa el último precio guardado de cada producto; el ticket usa el precio que se leyó.")), r.categories.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Por categoría · desde el ", fmtDay(r.categoryWindowStart)), r.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, className: "ms-row", style: { minHeight: 48 } }, /* @__PURE__ */ React.createElement("span", { className: "flex-1 min-w-0", style: { fontSize: 16 } }, c.category), /* @__PURE__ */ React.createElement("span", { className: "ms-meta", style: { marginTop: 0, width: 44, textAlign: "right" } }, Math.round(c.share * 100), "%"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, fontVariantNumeric: "tabular-nums", minWidth: 80, textAlign: "right" } }, fmtMoney(c.total))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Precio por compra"), r.priceTrends.length > 0 ? r.priceTrends.map((p) => {
+      return /* @__PURE__ */ React.createElement("div", { "data-testid": "rendimientos" }, /* @__PURE__ */ React.createElement("p", { className: "ms-note", style: { marginTop: 4 } }, r.since ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Historial desde el ", fmtDay(r.since), ": ", r.totalPurchases, " ", r.totalPurchases === 1 ? "compra registrada" : "compras registradas", ".") : /* @__PURE__ */ React.createElement(React.Fragment, null, "El historial se empieza a llenar desde esta versión: cada vez que finalizas una compra o lees un ticket. Antes la app solo guardaba la última compra y el último precio de cada producto.")), r.runningOut.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Por acabarse"), r.runningOut.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, "cada ", p.every, " días · última ", fmtDay(p.last), " · ", /* @__PURE__ */ React.createElement("span", { className: p.daysLeft < 0 ? "warn" : "" }, fmtLeft(p.daysLeft)))), /* @__PURE__ */ React.createElement("button", { onClick: () => addToList([p.itemId]), className: "ms-link-strong shrink-0" }, "A la lista"))), r.runningOut.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { padding: "10px var(--gutter)" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => addToList(r.runningOut.map((p) => p.itemId)), className: "ms-btn ms-btn-secondary" }, "Agregar los ", r.runningOut.length, " a la lista"))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Cada cuánto se acaba"), r.products.length > 0 ? r.products.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, "cada ", p.every, " días · ", p.purchases, " compras · última ", fmtDay(p.last))), /* @__PURE__ */ React.createElement("p", { className: "ms-meta shrink-0 text-right", style: { marginTop: 0 } }, fmtDay(p.next), /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { className: p.daysLeft < 0 ? "warn" : "" }, fmtLeft(p.daysLeft))))) : /* @__PURE__ */ React.createElement(Note, null, "Para saber cada cuánto se acaba un producto hacen falta al menos dos compras registradas en días distintos.", r.singles.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " Hoy hay ", r.singles.length, " ", r.singles.length === 1 ? "producto" : "productos", " con una sola."))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Gasto por mes"), r.months.length > 0 ? r.months.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.month, className: "ms-row", style: { display: "block", minHeight: 0 } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-baseline justify-between gap-3" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16 } }, fmtMonth(m.month)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, fontVariantNumeric: "tabular-nums" } }, fmtMoney(m.total))), /* @__PURE__ */ React.createElement("div", { "aria-hidden": "true", style: { height: 2, background: "var(--rule)", marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { height: 2, width: `${m.total / maxMonth * 100}%`, background: "var(--ink)" } })), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, m.purchases, " ", m.purchases === 1 ? "compra" : "compras", m.unpriced > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", m.unpriced, " sin precio, no suman")))) : /* @__PURE__ */ React.createElement(Note, null, "Todavía no hay compras registradas."), r.months.length > 0 && /* @__PURE__ */ React.createElement(Note, null, "Finalizar compra usa el último precio guardado de cada producto; el ticket usa el precio que se leyó.")), tickets.some((t) => t.fotos.length || t.pendientes) && /* @__PURE__ */ React.createElement("section", { "data-testid": "tickets-hist" }, /* @__PURE__ */ React.createElement(Head, null, "Tickets"), [...tickets].filter((t) => t.fotos.length || t.pendientes).reverse().slice(0, 20).map((t) => /* @__PURE__ */ React.createElement("div", { key: t.id, className: "ms-row", style: { display: "block", minHeight: 0 } }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, fmtDay(t.date), " · ", t.count, " ", t.count === 1 ? "producto" : "productos"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 flex-wrap", style: { marginTop: 6 } }, t.fotos.map((u, k) => /* @__PURE__ */ React.createElement("a", { key: u, href: u, target: "_blank", rel: "noopener" }, /* @__PURE__ */ React.createElement("img", { src: u, alt: `Ticket ${k + 1}`, loading: "lazy", style: { width: 72, height: 72, objectFit: "cover", borderRadius: 6, background: "var(--paper-2)" } }))), (pendThumbs[t.id] || []).map((u, k) => /* @__PURE__ */ React.createElement("img", { key: u, src: u, alt: `Ticket por subir ${k + 1}`, style: { width: 72, height: 72, objectFit: "cover", borderRadius: 6, opacity: 0.55 } }))), t.pendientes > 0 && /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, t.pendientes, " ", t.pendientes === 1 ? "foto por subir" : "fotos por subir", cloudMode ? "" : " · se sube al activar el grupo")))), r.categories.length > 0 && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Por categoría · desde el ", fmtDay(r.categoryWindowStart)), r.categories.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.category, className: "ms-row", style: { minHeight: 48 } }, /* @__PURE__ */ React.createElement("span", { className: "flex-1 min-w-0", style: { fontSize: 16 } }, c.category), /* @__PURE__ */ React.createElement("span", { className: "ms-meta", style: { marginTop: 0, width: 44, textAlign: "right" } }, Math.round(c.share * 100), "%"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 16, fontVariantNumeric: "tabular-nums", minWidth: 80, textAlign: "right" } }, fmtMoney(c.total))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(Head, null, "Precio por compra"), r.priceTrends.length > 0 ? r.priceTrends.map((p) => {
         const first = p.prices[0].price, last = p.prices[p.prices.length - 1].price;
         const change = Math.round((last - first) / first * 100);
         return /* @__PURE__ */ React.createElement("div", { key: p.key, className: "ms-row" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement("p", { className: "ms-name" }, p.name), /* @__PURE__ */ React.createElement("p", { className: "ms-meta" }, p.prices.slice(-5).map((x) => `${fmtMoney(x.price)} (${fmtDay(x.date)})`).join(" → "))), /* @__PURE__ */ React.createElement("span", { className: "ms-meta shrink-0", style: { marginTop: 0, color: change > 0 ? "var(--danger)" : "var(--ink-3)" } }, change > 0 ? "+" : "", change, "%"));
@@ -1967,6 +2154,10 @@ Reglas:
     return /* @__PURE__ */ React.createElement("div", { className: "w-full h-full sm:h-[90vh] sm:max-w-[420px] sm:rounded-[18px] sm:shadow-2xl flex flex-col relative overflow-hidden", style: { background: "var(--paper)" } }, header, /* @__PURE__ */ React.createElement("div", { "data-testid": "scroll", className: "ms-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain" }, tab === "hist" && histView === "rend" ? renderRendimientos() : /* @__PURE__ */ React.createElement(React.Fragment, null, invFilter === "MariKondo" && tab === "inv" && list.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "ms-note" }, /* @__PURE__ */ React.createElement("strong", null, list.length), " candidatos a mari-kondear: caducados, duplicados, sin foto o sin comprar en 6 meses."), /* @__PURE__ */ React.createElement("div", { className: "ms-slist" }, groupedList ? groupedList.flatMap(([g, gitems]) => [/* @__PURE__ */ React.createElement("div", { key: "_g_" + g, className: "ms-group" }, g, " · ", gitems.length), ...gitems.map(renderItem)]) : list.map(renderItem)), !list.length && /* @__PURE__ */ React.createElement("div", { className: "ms-empty" }, searchQuery.trim() ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Nada coincide con “", searchQuery.trim(), "”.") : tab === "shop" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Tu lista está vacía.", /* @__PURE__ */ React.createElement("br", null), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, "Toca + para agregar lo que falta.")) : tab === "hist" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Aún no hay compras registradas.") : invFilter === "MariKondo" ? /* @__PURE__ */ React.createElement(React.Fragment, null, "Nada que mari-kondear.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "No hay nada aquí todavía."))), /* @__PURE__ */ React.createElement("div", { style: { height: 24 }, "aria-hidden": "true" })), (undoSnapshot || notice || showCheckout || updateReady) && /* @__PURE__ */ React.createElement("div", { className: "ms-dock over-nav shrink-0", "data-dock": true }, updateReady && /* @__PURE__ */ React.createElement("div", { className: "ms-toast", role: "status" }, /* @__PURE__ */ React.createElement("span", null, "Hay una versión nueva."), /* @__PURE__ */ React.createElement("button", { onClick: applyUpdate, className: "ms-link-strong" }, "Recargar")), undoSnapshot && /* @__PURE__ */ React.createElement("div", { className: "ms-toast", role: "status" }, /* @__PURE__ */ React.createElement("span", null, undoSnapshot.label), /* @__PURE__ */ React.createElement("button", { onClick: () => {
       setItems(undoSnapshot.items);
       if (undoSnapshot.purchases) setPurchases(undoSnapshot.purchases);
+      if (undoSnapshot.tickets) {
+        ticketsRef.current = undoSnapshot.tickets;
+        setTickets(undoSnapshot.tickets);
+      }
       setUndoSnapshot(null);
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     }, className: "ms-link-strong" }, "Deshacer")), notice && !undoSnapshot && /* @__PURE__ */ React.createElement("div", { className: "ms-toast", role: "status" }, /* @__PURE__ */ React.createElement("span", null, notice)), showCheckout && /* @__PURE__ */ React.createElement("button", { onClick: requestCheckout, className: "ms-btn ms-btn-accent justify-between", "data-act": "checkout" }, /* @__PURE__ */ React.createElement("span", null, "Finalizar compra"), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-2 font-normal" }, cartCount, " en el carrito ", /* @__PURE__ */ React.createElement(Icon, { name: "ArrowRight", size: 18 })))), tools, hasBottomNav && /* @__PURE__ */ React.createElement("nav", { className: "ms-bottomnav shrink-0 items-center gap-2", style: { padding: "8px var(--gutter) calc(8px + var(--sab))" }, "aria-label": "Secciones" }, /* @__PURE__ */ React.createElement("div", { className: "ms-seg", role: "tablist" }, TABS.map((x) => /* @__PURE__ */ React.createElement("button", { key: x.id, "data-tab": x.id, role: "tab", "aria-selected": tab === x.id, onClick: () => setTab(x.id) }, x.l))), /* @__PURE__ */ React.createElement("button", { onClick: () => setAddOpen(true), "aria-label": "Agregar", className: "ms-navadd", style: { flex: "0 0 auto" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement(Icon, { name: "Plus", size: 24 })))), addOpen && /* @__PURE__ */ React.createElement(
@@ -1985,6 +2176,22 @@ Reglas:
         setAddOpen(false);
         handleTicketUpload(e);
       } }))), recentlyAdded.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "ms-hint" }, "Agregado: ", recentlyAdded.join(", ")))
+    ), ckOpen && /* @__PURE__ */ React.createElement(
+      Sheet,
+      {
+        z: 70,
+        testid: "checkout",
+        onClose: () => !ckBusy && setCkOpen(false),
+        title: "Finalizar compra",
+        footer: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: () => finalizarCompra(ckFotos), disabled: ckBusy || ckFotos.length === 0, className: "ms-btn ms-btn-primary", "data-testid": "ck-con-ticket" }, ckFotos.length ? `Finalizar con ticket · ${ckFotos.length} ${ckFotos.length === 1 ? "foto" : "fotos"}` : "Finalizar con ticket"), /* @__PURE__ */ React.createElement("button", { onClick: () => finalizarCompra([]), disabled: ckBusy, className: "ms-btn ms-btn-secondary", "data-testid": "ck-saltar" }, "Saltar y finalizar"), /* @__PURE__ */ React.createElement("button", { onClick: () => setCkOpen(false), disabled: ckBusy, className: "ms-link", style: { alignSelf: "center" } }, "Cancelar"))
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "space-y-4", "data-testid": "ck-body" }, /* @__PURE__ */ React.createElement("p", { className: "ms-prose", style: { color: "var(--ink-2)" } }, cartCount, " ", cartCount === 1 ? "producto pasa" : "productos pasan", " a Casa. Si quieres, guarda el ticket. Es opcional."), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("label", { className: `ms-btn ms-btn-secondary cursor-pointer ${ckFotos.length >= TK_MAX_FOTOS ? "opacity-50" : ""}` }, /* @__PURE__ */ React.createElement(Icon, { name: "Camera", size: 18 }), " Tomar foto", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", capture: "environment", className: "hidden", "data-testid": "ck-camara", disabled: ckFotos.length >= TK_MAX_FOTOS, onChange: (e) => {
+        if (e.target.files?.length) ckAgregar(e.target.files);
+        e.target.value = "";
+      } })), /* @__PURE__ */ React.createElement("label", { className: `ms-btn ms-btn-secondary cursor-pointer ${ckFotos.length >= TK_MAX_FOTOS ? "opacity-50" : ""}` }, /* @__PURE__ */ React.createElement(Icon, { name: "Receipt", size: 18 }), " Galería", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, className: "hidden", "data-testid": "ck-galeria", disabled: ckFotos.length >= TK_MAX_FOTOS, onChange: (e) => {
+        if (e.target.files?.length) ckAgregar(e.target.files);
+        e.target.value = "";
+      } }))), ckFotos.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2", "data-testid": "ck-fotos" }, ckFotos.map((sh, i) => /* @__PURE__ */ React.createElement("figure", { key: i, className: "relative" }, /* @__PURE__ */ React.createElement("img", { src: `data:${sh.mime};base64,${sh.data}`, alt: `Ticket ${i + 1}`, className: "w-full aspect-square object-cover", style: { borderRadius: 6, background: "var(--paper-2)" } }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setCkFotos((prev) => prev.filter((_, k) => k !== i)), "aria-label": "Quitar foto", className: "absolute top-0 right-0 ms-icon-btn", style: { width: 36, height: 36, color: "#fff", filter: "drop-shadow(0 0 2px rgba(0,0,0,.7))" } }, /* @__PURE__ */ React.createElement(Icon, { name: "X", size: 18 }))))), ckMsg && /* @__PURE__ */ React.createElement("p", { className: "ms-hint", role: "status", style: { color: "var(--ink)" } }, ckMsg), /* @__PURE__ */ React.createElement("p", { className: "ms-hint" }, "Sin internet también funciona: las fotos se suben cuando vuelva la red."))
     ), confirmData.isOpen && /* @__PURE__ */ React.createElement(
       Sheet,
       {

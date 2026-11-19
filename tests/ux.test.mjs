@@ -83,8 +83,8 @@ test('Lista agrupada muestra encabezados por categoría', async () => {
 test('Tras Finalizar compra, el aviso Deshacer no tapa nada y deshace', async () => {
     const { page } = await openApp(browser, server.url, { items, safeArea: { top: 47, bottom: 34 } });
     await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Finalizar compra')).click());
-    await page.waitForSelector('[data-testid="confirm"]');
-    await page.evaluate(() => [...document.querySelectorAll('[data-testid="confirm"] button')].find((b) => b.textContent.includes('Finalizar')).click());
+    await page.waitForSelector('[data-testid="checkout"]');
+    await page.click('[data-testid="ck-saltar"]');
     await page.waitForSelector('[data-dock] [role="status"]');
     assert.deepEqual(await audit(page, 844), []);
     await page.evaluate(() => [...document.querySelectorAll('[data-dock] button')].find((b) => b.textContent === 'Deshacer').click());
@@ -96,8 +96,8 @@ test('Tras Finalizar compra, el aviso Deshacer no tapa nada y deshace', async ()
 test('Finalizar compra registra el historial y Deshacer lo quita', async () => {
     const { page } = await openApp(browser, server.url, { items });
     await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Finalizar compra')).click());
-    await page.waitForSelector('[data-testid="confirm"]');
-    await page.evaluate(() => [...document.querySelectorAll('[data-testid="confirm"] button')].find((b) => b.textContent.includes('Finalizar')).click());
+    await page.waitForSelector('[data-testid="checkout"]');
+    await page.click('[data-testid="ck-saltar"]');
     await page.waitForSelector('[data-dock] [role="status"]');
     const log = await page.evaluate(() => JSON.parse(localStorage.getItem('purchases_v1')));
     const cart = items.filter((i) => i.status === 'cart');
